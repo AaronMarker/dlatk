@@ -1,8 +1,16 @@
+import sys
+import os
+
+# Add the parent directory (dlatk/) to sys.path
+base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(base_dir)
+
 from dlatk.featureGetter import FeatureGetter
 from dlatk.database.dataEngine import DataEngine
 from dlatk.regressionPredictor import RegressionPredictor, ClassifyPredictor
 from dlatk.outcomeGetter import OutcomeGetter
 import dlatk.dlaConstants as dlac
+import DLATKTests
 #import ResultHandler as rh
 import csv
 import subprocess
@@ -11,11 +19,12 @@ from abc import ABC, abstractmethod
 
 
 
-
 #python3.5 dlatkInterface.py -d ai_fairness -t msgs_100u -c cnty -f 'feat$1gram$msgs_100u$cnty$16to16' 'feat$cat_met_a30_2000_cp_w$msgs_100u$cnty$16to16' --fit_reducer --model pca --transform_to_feats cnty_1gram_topic_reduced100 --n_components 100
 
 #python3.5 dlatkInterface.py -d ai_fairness -t msgs_100u -c cnty -f 'feat$1gram$msgs_100u$cnty$16to16' --fit_reducer --model pca --transform_to_feats cnty_1gram_topic_reduced100 --n_components 100
 #python3.5 dlatkInterface.py -d ai_fairness -t msgs_100u -c cnty -f 'feat$cat_met_a30_2000_cp_w$msgs_100u$cnty$16to16' --fit_reducer --model pca --transform_to_feats topic_reduced100 --n_components 100
+
+
 
 '''
 CREATE TABLE `feat$1gram_topics_combined$cnty$16to16` AS
@@ -33,48 +42,101 @@ python3.5 dlatkInterface.py -d ai_fairness -t msgs_100u -c cnty -f 'feat$dr_pca_
 
 '''
 
+def ds4udTests():
+    args = {
+        "json" : "DS4UD_Tests.json",
+        "db" : 'ds4ud_prospective',
+        "table" : 'msgs_ema_essays_day_v9',
+        "correlField" : 'user_id',
+        "outcomeTable" : "survey_outcomes_waves_aggregated_v9_floats_moreThan4",
+        "outcomeFields" : ["avg_phq9_score"],
+        "outcomeControls" : [],
+        "groupFreqThresh" : 0,
+        "featTables" : ['feat$roberta_la_meL23con$msgs_ema_words_day_v9$user_id']
+    }
+    DLATKTests.RegressionTest(**args).run()
+    adaptationFactors = ["age", "is_female"]
+    args["outcomeFields"] = ["avg_phq9_score"] + adaptationFactors
+    DLATKTests.FactorAdaptationRegressionTest(**args).run(adaptationFactors)
+    DLATKTests.FactorAdditionRegressionTest(**args).run(adaptationFactors)
+    adaptationFactors = ["age"]
+    args["outcomeFields"] = ["avg_phq9_score"] + adaptationFactors
+    DLATKTests.FactorAdaptationRegressionTest(**args).run(adaptationFactors)
+    DLATKTests.FactorAdditionRegressionTest(**args).run(adaptationFactors)
+    adaptationFactors = ["is_female"]
+    args["outcomeFields"] = ["avg_phq9_score"] + adaptationFactors
+    DLATKTests.FactorAdaptationRegressionTest(**args).run(adaptationFactors)
+    DLATKTests.FactorAdditionRegressionTest(**args).run(adaptationFactors)
 
 
 
-JSON = "PostStratFactorAdaptTests.json"
-MODEL_NAME = 'ridgecv'
-DATABASE = 'ai_fairness'
-TABLE = 'msgs_100u'
-CORREL_FIELD = 'cnty'
-OUTCOME_TABLE = "combined_county_outcomes"
-OUTCOME_FIELDS = ["heart_disease", "suicide", "life_satisfaction", "perc_fair_poor_health"]
-OUTCOME_CONTROLS = ["total_pop10", "femalePOP165210D$10", "hispanicPOP405210D$10", "blackPOP255210D$10", "forgnbornHC03_VC134ACS3yr$10", "bachdegHC03_VC94ACS3yr$10", "marriedaveHC03_AC3yr$10", "logincomeHC01_VC85ACS3yr$10", "unemployAve_BLSLAUS$0910", "perc_less_than_18_chr14_2012", "perc_65_and_over_chr14_2012"]
-GROUP_FREQ_THRESH = 1
-FEATURE_TABLES = ["feat$1gram$msgs_100u$cnty$16to16", "feat$cat_met_a30_2000_cp_w$msgs_100u$cnty$16to16"]
+def ctlbTests():
 
+    outcome = ["heart_disease", "suicide", "life_satisfaction", "perc_fair_poor_health"]
+    args = {
+        "json" : "PostStratFactorAdaptTests4_REDUCED.json",
+        "db" : 'ai_fairness',
+        "table" : 'msgs_100u',
+        "correlField" : 'cnty',
+        "outcomeTable" : "combined_county_outcomes",
+        "outcomeFields" : outcome,
+        "outcomeControls" : [],
+        "groupFreqThresh" : 0,
+        "featTables" : ["feat$dr_pca_cnty_1gram_reduced100$msgs_100u$cnty", "feat$dr_pca_topic_reduced100$msgs_100u$cnty "]
+    }
 
+    adaptationFactors = [["logincomeHC01_VC85ACS3yr$10", "hsgradHC03_VC93ACS3yr$10", "forgnbornHC03_VC134ACS3yr$10"], ["logincomeHC01_VC85ACS3yr$10"], ["hsgradHC03_VC93ACS3yr$10"], ["forgnbornHC03_VC134ACS3yr$10"]]
+
+    for facs in adaptationFactors:
+        args["outcomeControls"] = facs
+        args["outcomeFields"] = outcome
+        DLATKTests.RegressionTest(**args).run()
+        
+        DLATKTests.ResidualControlRegressionTest(**args).run()
+        args["outcomeFields"] = outcome + facs
+        DLATKTests.FactorAdaptationRegressionTest(**args).run(facs)
+        DLATKTests.ResidualFactorAdaptationRegressionTest(**args).run(facs)
+
+    #DLATKTests.ResidualFactorAdaptationRegressionTest(outcomeControls = list(set(test.OUTCOME_CONTROLS) - set(adaptationFactorsToRemove)), outcomeFields=test.OUTCOME_FIELDS + adaptationFactors).run(adaptationFactors=adaptationFactors)
+    
+    
+    #adaptationFactors = ["logincomeHC01_VC85ACS3yr$10", "hsgradHC03_VC93ACS3yr$10"]
 
 def main():
 
-    adaptationFactors = ["logincomeHC01_VC85ACS3yr$10", "hsgradHC03_VC93ACS3yr$10"]
-    adaptationFactorsToRemove = ["logincomeHC01_VC85ACS3yr$10", "hsgradHC03_VC93ACS3yr$10", "bachdegHC03_VC94ACS3yr$10"]
+    args = {
+        "json" : "PostStratFactorAdaptTests.json",
+        "db" : 'ai_fairness',
+        "table" : 'msgs_100u',
+        "correlField" : 'cnty',
+        "outcomeTable" : "combined_county_outcomes",
+        "outcomeFields" : ["heart_disease", "suicide", "life_satisfaction", "perc_fair_poor_health"],
+        "outcomeControls" : ["total_pop10", "femalePOP165210D$10", "hispanicPOP405210D$10", "blackPOP255210D$10", "forgnbornHC03_VC134ACS3yr$10", "bachdegHC03_VC94ACS3yr$10", "marriedaveHC03_AC3yr$10", "logincomeHC01_VC85ACS3yr$10", "unemployAve_BLSLAUS$0910", "perc_less_than_18_chr14_2012", "perc_65_and_over_chr14_2012"],
+        "groupFreqThresh" : 0,
+        "featTables" : ["feat$1gram$msgs_100u$cnty$16to16"]
+    }
+    #adaptationFactors = ["logincomeHC01_VC85ACS3yr$10", "hsgradHC03_VC93ACS3yr$10"]
+    #adaptationFactorsToRemove = ["logincomeHC01_VC85ACS3yr$10", "hsgradHC03_VC93ACS3yr$10", "bachdegHC03_VC94ACS3yr$10"]
 
-    #RegressionTest().run()
 
-    #RegressionTest(featTables=["feat$1gram$msgs_100u$cnty$16to16$k10bin50IE", "feat$cat_met_a30_2000_cp_w$msgs_100u$cnty$k10bin50IE"]).run()
-
-    #ResidualControlRegressionTest(outcomeControls = OUTCOME_CONTROLS, outcomeFields=OUTCOME_FIELDS).run()
-
-    #RegClassTests.ResidualFactorAdaptationRegressionTest(outcomeControls = list(set(OUTCOME_CONTROLS) - set(adaptationFactorsToRemove)), outcomeFields=OUTCOME_FIELDS + adaptationFactors).run(adaptationFactors=adaptationFactors)
-    print(list(set(OUTCOME_CONTROLS)))
-    RegClassTests.FactorAdaptationRegressionTest(outcomeControls = list(set(OUTCOME_CONTROLS)), outcomeFields=OUTCOME_FIELDS + adaptationFactors).run(adaptationFactors=adaptationFactors)
-
-    #RegClassTests.ResidualFactorAdaptationRegressionTest(featTables=["feat$1gram$msgs_100u$cnty$16to16$k10bin50IE", "feat$cat_met_a30_2000_cp_w$msgs_100u$cnty$k10bin50IE"], outcomeControls = list(set(OUTCOME_CONTROLS) - set(adaptationFactorsToRemove)), outcomeFields=OUTCOME_FIELDS + adaptationFactors).run(adaptationFactors=adaptationFactors)
-
+    ctlbTests()
     
-    #RegressionTest(featTables=["feat$cat_2000fb_w$msgs30u$cnty$1gra$ie$raking$s0$b0"]).run()
+
+'''
+    test.RegressionTest(featTables=["feat$1gram$msgs_100u$cnty$16to16$k10bin50IE", "feat$cat_met_a30_2000_cp_w$msgs_100u$cnty$k10bin50IE"]).run()
+
+    test.ResidualControlRegressionTest(outcomeControls = test.OUTCOME_CONTROLS, outcomeFields=test.OUTCOME_FIELDS).run()
+
+    test.RegClassTests.ResidualFactorAdaptationRegressionTest(outcomeControls = list(set(test.OUTCOME_CONTROLS) - set(adaptationFactorsToRemove)), outcomeFields=test.OUTCOME_FIELDS + adaptationFactors).run(adaptationFactors=adaptationFactors)
+    print(list(set(test.OUTCOME_CONTROLS)))
+    test.FactorAdaptationRegressionTest(outcomeControls = list(set(test.OUTCOME_CONTROLS)), outcomeFields=test.OUTCOME_FIELDS + adaptationFactors).run(adaptationFactors=adaptationFactors)
+
+    test.RegClassTests.ResidualFactorAdaptationRegressionTest(featTables=["feat$1gram$msgs_100u$cnty$16to16$k10bin50IE", "feat$cat_met_a30_2000_cp_w$msgs_100u$cnty$k10bin50IE"], outcomeControls = list(set(test.OUTCOME_CONTROLS) - set(adaptationFactorsToRemove)), outcomeFields=test.OUTCOME_FIELDS + adaptationFactors).run(adaptationFactors=adaptationFactors)
+    
+    test.RegressionTest(featTables=["feat$cat_2000fb_w$msgs30u$cnty$1gra$ie$raking$s0$b0"]).run()
+'''
 
 
-
-    # Test2 = lambda: (lambda: [RegressionTest(featTables=["feat$1gram$msgs_100u$cnty$16to16$k10bin50IE", "feat$cat_met_a30_2000_cp_w$msgs_100u$cnty$k10bin50IE"]).run()])()
-    # process2 = multiprocessing.Process(target=Test2)
-    # Test3 = lambda: (lambda: [ResidualControlRegressionTest().run()])()
-    # process3 = multiprocessing.Process(target=Test3)
 
     #Test regular regression on n-grams
     #regReg = RegressionTest()
@@ -87,8 +149,7 @@ def main():
     #resReg = ResidualControlRegressionTest()
     #resReg.run()
 
-
-
+'''
 class RegClassTests():
 
     def __init__(self, JSON, MODEL_NAME, DATABASE, TABLES, TABLE, CORREL_FIELD, OUTCOME_TABLE, OUTCOME_FIELDS, OUTCOME_CONTROLS, GROUP_FREQ_THRESH, FEATURE_TABLES):
@@ -103,6 +164,7 @@ class RegClassTests():
         self.OUTCOME_CONTROLS = OUTCOME_CONTROLS
         self.GROUP_FREQ_THRESH = GROUP_FREQ_THRESH
         self.FEATURE_TABLES = FEATURE_TABLES
+
 
 
     class Test(ABC):
@@ -183,10 +245,10 @@ class RegClassTests():
             self._saveResults(scoresRaw)
 
         def _saveResults(self, scoresRaw):
-            '''for score in scoresRaw:
+            for score in scoresRaw:
                 self.result["scores"][score] = scoresRaw[score][tuple()][1]
 
-            rh.SaveResult(self.result, "PoststratFactoradaptResults.json")'''
+            rh.SaveResult(self.result, "PoststratFactoradaptResults.json")
             outputStream = open("original_print" + JSON.replace(".json", ".csv"), 'a')
             csv_writer = csv.writer(outputStream)
             csv_writer.writerow([self.name, self.result["tables"]["outcomeFields"], self.result["tables"]["outcomeControls"], self.result["tables"]["feat"]])
@@ -231,7 +293,7 @@ class RegClassTests():
             self._saveResults(scoresRaw)
 
 
-
+'''
 
 
 
