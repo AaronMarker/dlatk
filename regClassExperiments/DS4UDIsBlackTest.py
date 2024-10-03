@@ -47,7 +47,7 @@ FEATURE_TABLES = [['feat$dr_pca_ema_nagg_v9_txt_reduced100$ema_nagg_v9_txt$user_
 def ds4udTests():
     outcome = ["avg_phq9_score"]#["depression_past_any"]
     args = {
-        "json" : "DS4UD_DEBUG.json",
+        "json" : "DS4UD_ResPatch.json",
         "db" : 'ds4ud_adapt',
         "table" : 'msgs_ema_words_day_v9',
         "correlField" : 'user_id',
@@ -94,7 +94,7 @@ def splitOnDemographic():
         "featTables" : ['feat$roberta_la_meL23con$msgs_ema_words_day_v9$user_id']
     }
 
-    adaptationFactors = [["is_female"]]#[["age_binarized", "is_female", "is_black"], ["age_binarized"], ["is_female"], ["is_black"]]
+    adaptationFactors = [["age_binarized", "is_female", "is_black"]]#[["age_binarized", "is_female", "is_black"], ["age_binarized"], ["is_female"], ["is_black"]]
 
     for facs in adaptationFactors:
         args["outcomeControls"] = facs

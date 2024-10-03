@@ -42,31 +42,6 @@ python3.5 dlatkInterface.py -d ai_fairness -t msgs_100u -c cnty -f 'feat$dr_pca_
 
 '''
 
-def ds4udTests():
-    args = {
-        "json" : "DS4UD_Tests.json",
-        "db" : 'ds4ud_prospective',
-        "table" : 'msgs_ema_essays_day_v9',
-        "correlField" : 'user_id',
-        "outcomeTable" : "survey_outcomes_waves_aggregated_v9_floats_moreThan4",
-        "outcomeFields" : ["avg_phq9_score"],
-        "outcomeControls" : [],
-        "groupFreqThresh" : 0,
-        "featTables" : ['feat$roberta_la_meL23con$msgs_ema_words_day_v9$user_id']
-    }
-    DLATKTests.RegressionTest(**args).run()
-    adaptationFactors = ["age", "is_female"]
-    args["outcomeFields"] = ["avg_phq9_score"] + adaptationFactors
-    DLATKTests.FactorAdaptationRegressionTest(**args).run(adaptationFactors)
-    DLATKTests.FactorAdditionRegressionTest(**args).run(adaptationFactors)
-    adaptationFactors = ["age"]
-    args["outcomeFields"] = ["avg_phq9_score"] + adaptationFactors
-    DLATKTests.FactorAdaptationRegressionTest(**args).run(adaptationFactors)
-    DLATKTests.FactorAdditionRegressionTest(**args).run(adaptationFactors)
-    adaptationFactors = ["is_female"]
-    args["outcomeFields"] = ["avg_phq9_score"] + adaptationFactors
-    DLATKTests.FactorAdaptationRegressionTest(**args).run(adaptationFactors)
-    DLATKTests.FactorAdditionRegressionTest(**args).run(adaptationFactors)
 
 
 
@@ -74,7 +49,7 @@ def ctlbTests():
 
     outcome = ["heart_disease", "suicide", "life_satisfaction", "perc_fair_poor_health"]
     args = {
-        "json" : "PostStratFactorAdaptTests4_REDUCED.json",
+        "json" : "CTLB_1grams_PREDICTIONS_OUTPUT_TEST.json",
         "db" : 'ai_fairness',
         "table" : 'msgs_100u',
         "correlField" : 'cnty',
@@ -82,20 +57,22 @@ def ctlbTests():
         "outcomeFields" : outcome,
         "outcomeControls" : [],
         "groupFreqThresh" : 0,
-        "featTables" : ["feat$dr_pca_cnty_1gram_reduced100$msgs_100u$cnty", "feat$dr_pca_topic_reduced100$msgs_100u$cnty "]
+        "featTables" : ['feat$1gram$msgs_100u$cnty$16to16$0_9']##['feat$1gram$msgs_100u$cnty$16to16']#
     }
-
-    adaptationFactors = [["logincomeHC01_VC85ACS3yr$10", "hsgradHC03_VC93ACS3yr$10", "forgnbornHC03_VC134ACS3yr$10"], ["logincomeHC01_VC85ACS3yr$10"], ["hsgradHC03_VC93ACS3yr$10"], ["forgnbornHC03_VC134ACS3yr$10"]]
+    #4 socioeconomic variables including median income, unemployment rate, percentage of bachelors degrees, and percentage of high school degree
+    # as well as 7 demographic variables including median age; percentage: female, black, Hispanic, foreign-born, married; and population density
+    #adaptationFactors = [["logincomeHC01_VC85ACS3yr$10", "unemployAve_BLSLAUS$0910", "bachdegHC03_VC94ACS3yr$10", "hsgradHC03_VC93ACS3yr$10", "perc_less_than_18_chr14_2012", "femalePOP165210D$10", "blackPOP255210D$10", "hispanicPOP405210D$10", "forgnbornHC03_VC134ACS3yr$10", "marriedaveHC03_AC3yr$10", "total_pop10"]]
+    adaptationFactors = [["logincomeHC01_VC85ACS3yr$10", "hsgradHC03_VC93ACS3yr$10", "forgnbornHC03_VC134ACS3yr$10"]]#, ["logincomeHC01_VC85ACS3yr$10"], ["hsgradHC03_VC93ACS3yr$10"], ["forgnbornHC03_VC134ACS3yr$10"]]
 
     for facs in adaptationFactors:
         args["outcomeControls"] = facs
         args["outcomeFields"] = outcome
         DLATKTests.RegressionTest(**args).run()
         
-        DLATKTests.ResidualControlRegressionTest(**args).run()
+        #DLATKTests.ResidualControlRegressionTest(**args).run()
         args["outcomeFields"] = outcome + facs
-        DLATKTests.FactorAdaptationRegressionTest(**args).run(facs)
-        DLATKTests.ResidualFactorAdaptationRegressionTest(**args).run(facs)
+        #DLATKTests.FactorAdaptationRegressionTest(**args).run(facs)
+        #DLATKTests.ResidualFactorAdaptationRegressionTest(**args).run(facs)
 
     #DLATKTests.ResidualFactorAdaptationRegressionTest(outcomeControls = list(set(test.OUTCOME_CONTROLS) - set(adaptationFactorsToRemove)), outcomeFields=test.OUTCOME_FIELDS + adaptationFactors).run(adaptationFactors=adaptationFactors)
     

@@ -3,6 +3,8 @@ import matplotlib
 matplotlib.use('Agg')  # Use the 'Agg' backend for headless environments
 import matplotlib.pyplot as plt
 import re
+#import seaborn as sns
+
 
 
 FILTER_OUT_CONTROLS_ONLY=True
@@ -57,12 +59,139 @@ def parse_csv(file_path):
 
         # Convert the data into a DataFrame
         df = pd.DataFrame(data_rows, columns=column_headers)
+        print("headers: ", column_headers)
         #print("DATAFRAME: ", df)
         df['Title'] = title  # Add the title as a column for easy reference
+        #print("titles: ", title)
         df['allOutcomes'] = outcomes
         sections.append(df)
     
     return sections
+
+
+'''
+def color_code(val, min_val, max_val):
+    """
+    Normalize the value and return a color from red to green.
+    """
+    norm_val = (val - min_val) / (max_val - min_val) if max_val > min_val else 0.5
+    scaler = .8
+    red = int(255 * ((1 - norm_val) * scaler + (1-scaler)))
+    print("RED: ", red)
+    green = int(255 * (norm_val * scaler + (1-scaler)))
+    return (red/255, green/255, .2)
+
+def plot_all_sections(sections):
+    """
+    For each section in the CSV file, plot the 'r' column from all sections in a table with color-coded cells.
+    """
+    combined_df = pd.DataFrame()  # Initialize an empty DataFrame to combine all data
+    
+    for idx, df in enumerate(sections):
+        if FILTER_OUT_CONTROLS_ONLY:
+            df = df[df['model_controls'].str[-1] == '1']
+
+        if FILTER_OUT_LANGUAGE_ONLY:
+            df = df[~(df['model_controls'].str[-3] == '(')]
+
+        title = df['Title'].iloc[0]
+        outcomes = df['allOutcomes'].iloc[0].translate({ord(c): None for c in "[]'"})
+
+        if COL in df.columns:
+            df_r = df[[COL]].copy()  # Select only the 'r' column
+            df_r[COL] = pd.to_numeric(df_r[COL], errors='coerce')
+            df_r = df_r.dropna()
+
+            if not df_r.empty:
+                df_r['TestType'] = ''.join(word[:3] for word in title.split()[:-1] if word)
+                df_r['Title'] = '_'.join(max((sub.strip() for sub in word.split("_") if sub), key=len, default='')[:3] for word in outcomes.split(",") if word)
+                df_r['outcome'] = df['outcome']
+                df_r['controls'] = df['model_controls']
+                df_r['N'] = df['test_size'].astype(int) + df['train_size'].astype(int)
+                df_r['num_features'] = df['num_features']
+                df_r['label'] = df_r['Title'] + "_" + df_r['controls'].astype(str).apply(lambda x: '_'.join(word[:2] for word in re.sub(r'["\'()_]', '', x).split(",") if word))
+                combined_df = pd.concat([combined_df, df_r], ignore_index=True)
+
+            else:
+                print("No valid data in column for section: {}".format(title))
+
+        else:
+            print("Column not found in section: {}".format(title))
+    
+    combined_df.to_csv('clean_' + file_path, index=False)
+
+    if AVERAGE_METHODS:
+        combined_df = combined_df.groupby('TestType', as_index=False).mean()
+        combined_df['Title'] = ""
+    
+    if not combined_df.empty:
+        print("COMB: ", combined_df)
+        try:
+            
+            combined_df['identifier'] = combined_df['TestType'] + '_' + combined_df['label']
+
+            # Step 2: Create a pivot table with TestType and controls as columns
+            pivot_df = combined_df.pivot(index='outcome', columns='identifier', values='r')
+
+
+            #pivot_df = combined_df.pivot_table(index='outcome', columns=['TestType', 'controls'], values=COL, aggfunc='first')
+
+            
+        except Exception as e:
+            print("Error during pivoting:", e)
+            return
+        
+
+        fig, ax = plt.subplots(figsize=(12, 8))
+        ax.axis('tight')
+        ax.axis('off')
+
+        table = ax.table(cellText=pivot_df.values,
+                         rowLabels=pivot_df.index,
+                         colLabels=pivot_df.columns,
+                         cellLoc='center',
+                         loc='center')
+        print("COMB: ", combined_df.columns)
+        print("TABLE: ", combined_df)
+
+        table.auto_set_font_size(False)  # Disable automatic font size adjustment
+        table.set_fontsize(10)  # Set the desired font size
+
+        # Optionally, you can also set the size of the columns
+        table.scale(1.2, 1.2)  # Adjust the scale if needed
+
+        # Color-code cells
+        for i in range(len(pivot_df.index)):
+            row_values = pivot_df.iloc[i, :]
+            min_val = row_values.min()
+            max_val = row_values.max()
+            for j in range(len(pivot_df.columns)):
+                value = pivot_df.iloc[i, j]
+                if not pd.isnull(value):
+                    color = color_code(value, min_val, max_val)
+                    table.get_celld()[(i+1, j)].set_facecolor(color)
+                    table.get_celld()[(i+1, j)].set_text_props(color='white' if value < (min_val + max_val) / 2 else 'black')
+                else:
+                    table.get_celld()[(i+1, j)].set_facecolor('white')
+
+        for (i, j), cell in table.get_celld().items():
+            if i > 0 and j >= 0:  # Avoid row and column headers
+                try:
+                    cell_text = cell.get_text().get_text()
+                    cell.get_text().set_text("{:.3f}".format(float(cell_text)))  # Format the text to 3 decimals
+                except ValueError:
+                    continue  # Skip if the text isn't a number
+        
+        
+        plt.savefig('colored_table.png')
+        plt.close()
+        print("Color-coded table saved as 'colored_table.png'")
+
+    else:
+        print("No valid data found to display.")
+'''
+
+
 
 def plot_all_sections(sections):
     """
@@ -76,12 +205,19 @@ def plot_all_sections(sections):
             df = df[df['model_controls'].str[-1] == '1']
 
         if FILTER_OUT_LANGUAGE_ONLY:
-            df = df[~(df['model_controls'].str[-3] == '(')]
+            df = df[~((df['model_controls'].str[-3] == '(') & (df['Title'] != "Regression Test"))]
+            
+            #print("F MODEL COMTROLSL: ", df.loc[~(df['model_controls'].str[-3] != '('), 'Title'])
+            df.loc[~((df['model_controls'].str[-3] == '(')) & (df['Title'] == "Regression Test"), 'Title'] = 'Regression Add Controls Test'
+            #print("F MODEL COMTROLSL2: ", df.loc[~(df['model_controls'].str[-3] == '('), 'Title'])
+            
+
 
         #print("\nRows where the last character is '0':")
         #print(df[df['model_controls'].str[-1] != '0'])
 
         title = df['Title'].iloc[0]  # Get the section title
+
         #print("TESTING", title)
         outcomes = df['allOutcomes'].iloc[0]
         chars_to_remove = "[]'"
@@ -90,7 +226,7 @@ def plot_all_sections(sections):
         #outcomes.replace(']', '')
         #outcomes.replace('\'', '')
 
-        
+        #print("DF: ", df.iloc[0])
 
         # Check if the column 'r' exists in the DataFrame
         if COL in df.columns:
@@ -104,7 +240,8 @@ def plot_all_sections(sections):
             
             if not df_r.empty:
                 # Add a column for the title to identify each section
-                df_r['TestType'] = ''.join(word[:3] for word in title.split()[:-1] if word) 
+                print("COLUMNS: ", df.columns)
+                df_r['TestType'] = df['Title'].str.replace(' Test', '', case=False, regex=False)
                 df_r['Title'] = '_'.join(max((sub.strip() for sub in word.split("_") if sub), key=len, default='')[:3] for word in outcomes.split(",") if word)
                 
                 df_r['outcome'] = df['outcome']
@@ -113,7 +250,7 @@ def plot_all_sections(sections):
                 df_r['num_features'] = df['num_features']
                 df_r['label'] = df_r['Title'] + "_" + df_r['controls'].astype(str).apply(lambda x: '_'.join(word[:5] for word in re.sub(r'["\'()_]', '', x).split(",") if word))
                 combined_df = pd.concat([combined_df, df_r], ignore_index=True)
-                print(df_r)
+                #print(df_r)
                 
             else:
                 print("No valid data in column for section: {}".format(title))
@@ -129,24 +266,24 @@ def plot_all_sections(sections):
         combined_df['Title'] = ""
 
 
-
     if not combined_df.empty:
 
         manual_colors = {
-            'Reg': '#8D99AE',         # Example color for 'Reg'
-            'ResConReg': '#F5B841',   # Example color for 'ResConReg'
-            'FacAdaReg': '#931621',   # Example color for 'FacAdaReg'
-            'ResFacAdaReg': '#2E294E' # Example color for 'ResFacAdaReg'
+            'Regression': '#b4bfd1',         # Example color for 'Reg'
+            'Regression Add Controls': '#687282',   # Example color for 'ResConReg'
+            'Residualized Controls Regression': '#F5B841',   # Example color for 'ResConReg'
+            'Factor Adaptation Regression': '#931621',   # Example color for 'FacAdaReg'
+            'Residualized Factor Adaptation Regression': '#2E294E' # Example color for 'ResFacAdaReg'
         }
 
-        custom_order = ['Reg', 'ResConReg', 'FacAdaReg', 'ResFacAdaReg']
+        custom_order = ['Regression', 'Regression Add Controls', 'Residualized Controls Regression', 'Factor Adaptation Regression', 'Residualized Factor Adaptation Regression']
         combined_df['TestType'] = pd.Categorical(combined_df['TestType'], categories=custom_order, ordered=True)
         try:
             combined_df = combined_df.sort_values(by=['outcome', 'TestType'])
         except:
              combined_df = combined_df.sort_values(by=['TestType'], ascending=True)
         num_columns = len(combined_df['TestType'].unique())
-        figure_width = max(10, num_columns * 0.5)  # Adjust the scaling factor as needed
+        figure_width = max(12, num_columns * 0.5)  # Adjust the scaling factor as needed
         #''.join(word[:3] for word in combined_df['Title'].split()[:-1] if word)
 
         colors_for_plot = combined_df['TestType'].map(manual_colors)
@@ -154,7 +291,6 @@ def plot_all_sections(sections):
         color_map = plt.get_cmap('tab20')  # You can choose a different colormap
         colors = {title: color_map(i / len(unique_titles)) for i, title in enumerate(unique_titles)}
        
-
 
         ax = combined_df.plot(kind='bar', x='outcome', y=COL, stacked=False, color=colors_for_plot)#[colors[title] for title in combined_df['TestType']])
         
@@ -175,7 +311,7 @@ def plot_all_sections(sections):
         plt.tight_layout(rect=[0, 0, 0.75, 1])
         
         # Save the combined plot to a file
-        plt.savefig('combined_plot.png')
+        plt.savefig('combined_plot2.png')
 
         plt.close()  # Close the plot to free memory
 
@@ -198,24 +334,12 @@ def unique_values_ordered(lst):
 
 
 # File path to your CSV
-file_path = 'original_printDS4UD_Tests9Reg_NO_extra.csv'#original_printPostStratFactorAdaptTests3.csv'
+file_path = 'original_printCTLB_1grams_Error_test.csv'
 
 # Parse the CSV file into sections
 sections = parse_csv(file_path)
 
 # Plot all sections
 plot_all_sections(sections)
-
-
-
-
-
-
-
-
-
-
-
-
 
 

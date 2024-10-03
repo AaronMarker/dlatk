@@ -91,11 +91,11 @@ class RegressionTest(Test):
 
     def __init__(self, json=JSON, db=DATABASE, table=TABLE, outcomeTable=OUTCOME_TABLE, correlField = CORREL_FIELD, featTables = FEATURE_TABLES, outcomeFields = OUTCOME_FIELDS, outcomeControls = OUTCOME_CONTROLS, groupFreqThresh = GROUP_FREQ_THRESH):
         self.json = json
-        og = OutcomeGetter(corpdb = db, corptable = table, correl_field=correlField, outcome_table=outcomeTable, outcome_value_fields=outcomeFields, outcome_controls=outcomeControls, outcome_categories = [], multiclass_outcome = [], featureMappingTable='', featureMappingLex='', wordTable = None, fold_column = None, group_freq_thresh = 0)
+        og = OutcomeGetter(corpdb = db, corptable = table, correl_field=correlField, outcome_table=outcomeTable, outcome_value_fields=outcomeFields, outcome_controls=outcomeControls, outcome_categories = [], multiclass_outcome = [], featureMappingTable='', featureMappingLex='', wordTable = None, fold_column = None, group_freq_thresh = groupFreqThresh)
         fgs = [FeatureGetter(corpdb = db, corptable = table, correl_field=correlField, featureTable=featTable, featNames="", wordTable = None) for featTable in featTables]
-        RegressionPredictor.featureSelectionString = dlac.DEF_RP_FEATURE_SELECTION_MAPPING['magic_sauce']
+        RegressionPredictor.featureSelectionString = dlac.DEF_RP_FEATURE_SELECTION_MAPPING['topic_ngram_ms']#['magic_sauce']
 
-        self.rp = RegressionPredictor(og, fgs, 'ridgecv', None, None)
+        self.rp = RegressionPredictor(og, fgs, 'ridgehighcv', None, None)
         self.result = {
             "name": self.name,
             "tables": {
@@ -109,8 +109,8 @@ class RegressionTest(Test):
         }
 
     def run(self):
-        scoresRaw = self.rp.testControlCombos(comboSizes = [], nFolds = 10, allControlsOnly=True, report = False)
-        print("SCORESRAW: ", scoresRaw)
+        scoresRaw = self.rp.testControlCombos(savePredictions=True, numOfFactors = None, comboSizes = [], nFolds = 10, allControlsOnly=True, report = False)
+        #print("SCORESRAW: ", scoresRaw)
         self._saveResults(scoresRaw)
 
     def _saveResults(self, scoresRaw):
@@ -125,12 +125,12 @@ class RegressionTest(Test):
 
         RegressionPredictor.printComboControlScoresToCSV(scoresRaw, outputStream)
         outputStream.close()
-        '''outputStream.close()
+        outputStream.close()
         outputStream = open("REG_" + self.json.replace(".json", ".csv"), 'a')
         csv_writer = csv.writer(outputStream)
         csv_writer.writerow([self.name, self.result["tables"]["outcomeFields"], self.result["tables"]["outcomeControls"], self.result["tables"]["feat"]])
         RegressionPredictor.printComboControlPredictionsToCSV(scoresRaw, outputStream)
-        outputStream.close()'''
+        outputStream.close()
 
 
 
@@ -142,7 +142,7 @@ class ResidualControlRegressionTest(RegressionTest):
         super().__init__(*args, **kwargs)
 
     def run(self):
-        scoresRaw = self.rp.testControlCombos(nFolds = 10, residualizedControls =True, allControlsOnly=True, report = False)
+        scoresRaw = self.rp.testControlCombos(savePredictions=True, numOfFactors = None, nFolds = 10, residualizedControls =True, allControlsOnly=True, report = False)
         self._saveResults(scoresRaw)
 
 
@@ -154,7 +154,7 @@ class FactorAdaptationRegressionTest(RegressionTest):
 
     def run(self, adaptationFactors):
         self.result["adaptationFactors"] = adaptationFactors
-        scoresRaw = self.rp.testControlCombos(nFolds = 10, adaptationFactorsName = adaptationFactors, integrationMethod="fa", allControlsOnly=True, report = False)
+        scoresRaw = self.rp.testControlCombos(savePredictions=True, numOfFactors = None, nFolds = 10, adaptationFactorsName = adaptationFactors, integrationMethod="fa", allControlsOnly=True, report = False)
         self._saveResults(scoresRaw)
 
 
@@ -166,7 +166,7 @@ class FactorAdditionRegressionTest(RegressionTest):
 
     def run(self, adaptationFactors):
         self.result["adaptationFactors"] = adaptationFactors
-        scoresRaw = self.rp.testControlCombos(nFolds = 10, adaptationFactorsName = adaptationFactors, integrationMethod="plus", allControlsOnly=True, report = False)
+        scoresRaw = self.rp.testControlCombos(savePredictions=True, numOfFactors = None, nFolds = 10, adaptationFactorsName = adaptationFactors, integrationMethod="plus", allControlsOnly=True, report = False)
         self._saveResults(scoresRaw)
 
 
@@ -177,7 +177,7 @@ class ResidualFactorAdaptationRegressionTest(RegressionTest):
         super().__init__(*args, **kwargs)
 
     def run(self, adaptationFactors):
-        scoresRaw = self.rp.testControlCombos(nFolds = 10, residualizedControls=True, adaptationFactorsName = adaptationFactors, integrationMethod="rfa", allControlsOnly=True, report = False)
+        scoresRaw = self.rp.testControlCombos(savePredictions=True, numOfFactors = None, nFolds = 10, residualizedControls=True, adaptationFactorsName = adaptationFactors, integrationMethod="rfa", allControlsOnly=True, report = False)
         self._saveResults(scoresRaw)
 
         
