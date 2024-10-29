@@ -935,6 +935,7 @@ class RegressionPredictor:
                             print(
                             "Warning: Stratifying outcome classes across folds (thus, folds will differ across outcomes)."
                         )
+                            superGroups = None
                             if stratifyPrefixSuperGroups: superGroups = 'prefix' 
                             groupFolds = stratifyGroups(
                                 thisOutcomeGroups, outcomes, nFolds, superGroups=superGroups, randomState=DEFAULT_RANDOM_SEED
