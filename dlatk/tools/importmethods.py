@@ -149,7 +149,6 @@ def importConvoKit(database, table, pathToCorpus, db_type, mysql_config_file=dla
     
     data_engine = DataEngine(database, mysql_config_file, encoding, use_unicode, db_type)
     (dbConn, dbCursor, dictCursor) = data_engine.connect()
-
     data_engine.dataEngine.importConvoKit(pathToCorpus)
     return
 

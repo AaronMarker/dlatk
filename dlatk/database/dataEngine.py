@@ -376,6 +376,7 @@ class DataEngine(object):
         return columnDescription
     
     def importConvoKit(self, pathToCorpus):
+        print("self.db_type", self.db_type)
         if not pathToCorpus.endswith("/"):
             pathToCorpus += "/"
         
@@ -404,7 +405,8 @@ class DataEngine(object):
                             data = self.flattenUtterancesJSON(data)
                             if not numColumns:
                                 numColumns = len(data)
-                                values_str = "(" + ",".join(["%s"]*numColumns) + ")"
+                                placeholder = "%s" if self.db_type == "mysql" else "?"
+                                values_str = "(" + ",".join([placeholder]*numColumns) + ")"
                             dataToWrite.append(tuple(data))
                             if i % 10000 == 0:
                                 insertQuery = """INSERT INTO {table} VALUES {values}""".format(table=table, values=values_str)
@@ -433,7 +435,8 @@ class DataEngine(object):
                     for chunk in chunkData:
                         if not numColumns:
                             numColumns = len(chunk[0])
-                            values_str = "(" + ",".join(["%s"]*numColumns) + ")"
+                            placeholder = "%s" if self.db_type == "mysql" else "?"
+                            values_str = "(" + ",".join([placeholder]*numColumns) + ")"
                         insertQuery = """INSERT INTO {table} VALUES {values}""".format(table=table, values=values_str)
                         self.execute_write_many(insertQuery, chunk)
                 indexSQL = []
@@ -865,7 +868,7 @@ class MySqlDataEngine(DataEngine):
 
 class SqliteDataEngine(DataEngine):
     def __init__(self, corpdb):
-        super().__init__(corpdb)
+        super().__init__(corpdb, db_type="sqlite")
         (self.dbConn, self.dbCursor) = sm.dbConnect(corpdb)
 
     def get_db_connection(self):
