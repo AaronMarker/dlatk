@@ -8,7 +8,6 @@ import os
 import csv
 import ast
 import json
-import pandas as pd
 
 class DataEngine(object):
     """
@@ -376,7 +375,6 @@ class DataEngine(object):
         return columnDescription
     
     def importConvoKit(self, pathToCorpus):
-        print("self.db_type", self.db_type)
         if not pathToCorpus.endswith("/"):
             pathToCorpus += "/"
         
