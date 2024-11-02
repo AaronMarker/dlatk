@@ -80,9 +80,18 @@ class DLAWorker(object):
     
     def prepare_corpdb(self):
 
-        if (".csv" in self.corptable) or (self.db_type == "sqlite"):
+        if (self.corptable and ".csv" in self.corptable) or (self.db_type == "sqlite"):
 
             self.db_type = "sqlite"
+            
+            if self.corpdb is None: # probably using a CSV
+                self.corpdb = self.corptable.split('/')[-1].split('.')[0]
+                default_dir = path.join("/content", "sqlite_data") if path.exists("/content") else path.join(path.expanduser('~'), "sqlite_data")
+                if not path.exists(default_dir):
+                    makedirs(default_dir)
+            else: # else use full path (probably SQLite)
+                if self.corpdb.endswith(".db"):
+                    self.corpdb = self.corpdb.replace(".db", "")
 
             default_dir = path.join("/content", "sqlite_data") if path.exists("/content") else path.join(path.expanduser('~'), "sqlite_data")
             if not path.exists(default_dir):
@@ -92,18 +101,19 @@ class DLAWorker(object):
                 self.corpdb = self.corptable.split('/')[-1].split('.')[0]
             self.corpdb = path.join(default_dir, self.corpdb)
             
-            print("Connecting to SQLite database: {}.db".format(self.corpdb))
+            print("Connecting to SQLite database: {}".format(self.corpdb))
             self.data_engine = DataEngine(self.corpdb, self.mysql_config_file, self.encoding, self.use_unicode, self.db_type)
             (self.dbConn, self.dbCursor, self.dictCursor) = self.data_engine.connect()
 
-            message_table = self.corptable.split('/')[-1].split('.')[0]
-            if not self.data_engine.tableExists(message_table):
-                if ".csv" in self.corptable:
-                    self.data_engine.csvToTable(self.corptable, message_table)
-                else:
-                    dlac.warn("Message table missing")
-            
-            self.corptable = message_table
+            if self.corptable:
+                message_table = self.corptable.split('/')[-1].split('.')[0]
+                if not self.data_engine.tableExists(message_table):
+                    if ".csv" in self.corptable:
+                        self.data_engine.csvToTable(self.corptable, message_table)
+                    else:
+                        dlac.warn("Message table missing")
+                
+                self.corptable = message_table
 
         elif self.db_type == "mysql":
 

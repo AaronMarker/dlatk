@@ -4,8 +4,10 @@ from .. import dlaConstants as dlac
 from subprocess import check_output
 import random
 import sys
+import os
 import csv
 import ast
+import json
 
 class DataEngine(object):
     """
@@ -273,8 +275,209 @@ class DataEngine(object):
         Dict
         """
         return self.dataEngine.getTableColumnNameTypes(table_name)
+    
+    def checkExactTypes(self, type):
+        typeStr = "TEXT"
+        try:
+            if type == 'string':
+                typeStr = "TEXT"
+            elif type == 'Int64':
+                typeStr = "INTEGER"
+            elif type == 'Float64':
+                typeStr = "FLOAT"
+        except:
+            pass
+        return typeStr
+    
+    def flattenUtterancesJSON(self, jsonData, numRowsToKeep = -1):
+        dataToWrite = []
+        for k,v in jsonData.items():
+            if k == 'meta':
+                metaData = jsonData[k]
+                for kk, vv in metaData.items():
+                    if isinstance(vv, list) or isinstance(vv, dict):
+                        vv = str(vv)
+                    dataToWrite.append(vv)
+            else:
+                if isinstance(v, list) or isinstance(v, dict):
+                    v = str(v)
+                dataToWrite.append(v)
+        return dataToWrite
 
-    def get_column_description(self, csv_file):
+    def flattenJSON(self, jsonData, table, numRowsToKeep = -1):
+        columnNames = ["id"]
+        if table == "speakers":
+            columnNames = ["speaker"]
+        elif table == "conversations":
+            columnNames = ["conversation_id"]
+        elif table == "corpus":
+            columnNames = ["meta_data"]
+        elif table == "index":
+            columnNames = ["index"]
+        
+        dataToWrite = []
+        for k,v in jsonData.items():
+            data = [k]
+            for kk, vv in v.items():
+                if kk == "meta":
+                    metaData = v[kk]
+                    for kkk, vvv in metaData.items():
+                        if isinstance(vvv, list) or isinstance(vvv, dict):
+                            vvv = str(vvv)
+                        data.append(vvv)
+                        if len(dataToWrite) == 0: columnNames.append(kkk)
+                else:
+                    if isinstance(vv, list) or isinstance(vv, dict):
+                        vv = str(vv)
+                    data.append(vv)
+                    if len(dataToWrite) == 0: columnNames.append(kk)
+            dataToWrite.append(data)
+            if numRowsToKeep > 0 and len(dataToWrite) == numRowsToKeep:
+                return columnNames, dataToWrite
+        return dataToWrite
+
+    def getSampleUtterances(self, jsonFile, numRowsToCheck = 1000):
+        columnNames, dataToWrite = [], []
+        with open(jsonFile) as f:
+            for i, line in enumerate(f):
+                data = json.loads(line)
+                thisData = []
+                for k,v in data.items():
+                    if k == 'meta':
+                        metaData = data[k]
+                        for kk, vv in metaData.items():
+                            if isinstance(vv, list) or isinstance(vv, dict):
+                                vv = str(vv)
+                            thisData.append(vv)
+                            if len(dataToWrite) == 0: columnNames.append(kk)
+                    else:
+                        if isinstance(v, list) or isinstance(v, dict):
+                            v = str(v)
+                        thisData.append(v)
+                        if len(dataToWrite) == 0: columnNames.append(k)
+                dataToWrite.append(thisData)
+                if i == numRowsToCheck:
+                    break
+        columnNames[columnNames.index("id")] = "message_id"
+        return columnNames, dataToWrite
+    
+    def createColDescription(self, columns, types, tableType=""):
+        columnDescription = ""
+        for column, type in zip(columns, types):
+            if column == "id":
+                columnDescription += "{column} {type} PRIMARY KEY, ".format(column=column, type=type)
+            else:
+                columnDescription += "{column} {type}, ".format(column=column, type=type)
+        # if tableType == "utterances":
+        #     columnDescription += """PRIMARY KEY (id)"""
+        columnDescription = columnDescription[:-2]
+        columnDescription = columnDescription.replace("-", "_")
+        return columnDescription
+    
+    def importConvoKit(self, pathToCorpus):
+        if not pathToCorpus.endswith("/"):
+            pathToCorpus += "/"
+        
+        tables = ["utterances", "speakers", "conversations", ] # "corpus", "index"
+
+        for table in tables:
+            jsonFile = pathToCorpus + table + ".json"
+            if table == "utterances":
+                jsonFile += "l"
+            if os.path.isfile(jsonFile) and not self.tableExists(table):
+                print("""Importing data, reading {csvFile} file""".format(csvFile=jsonFile))
+                if table == "utterances":
+                    columnNames, sample = self.getSampleUtterances(jsonFile)
+                    columnDescription, numColumns = self.get_column_description(columnNames, sample)
+                    columnDescription = self.createColDescription([c[0] for c in columnDescription], [c[1] for c in columnDescription], table)
+                    createSQL = """CREATE TABLE {table} ({colDesc});""".format(table=table, colDesc=columnDescription)
+                    print(createSQL)
+                    self.execute(createSQL)
+
+                    dataToWrite = []
+                    numColumns = None
+                    with open(jsonFile) as f:
+                        for i, line in enumerate(f, 1):
+                            data = json.loads(line)
+
+                            data = self.flattenUtterancesJSON(data)
+                            if not numColumns:
+                                numColumns = len(data)
+                                placeholder = "%s" if self.db_type == "mysql" else "?"
+                                values_str = "(" + ",".join([placeholder]*numColumns) + ")"
+                            dataToWrite.append(tuple(data))
+                            if i % 10000 == 0:
+                                insertQuery = """INSERT INTO {table} VALUES {values}""".format(table=table, values=values_str)
+                                self.execute_write_many(insertQuery, dataToWrite)
+                                print("\tWrote {i} lines".format(i=i))
+                                dataToWrite = []
+                        if len(dataToWrite) > 0:
+                            insertQuery = """INSERT INTO {table} VALUES {values}""".format(table=table, values=values_str)
+                            self.execute_write_many(insertQuery, dataToWrite)
+                            print("\tWrote {i} lines".format(i=i))
+                            dataToWrite = []
+                else:
+                    with open(jsonFile) as f:
+                        data = json.load(f)
+                    
+                    columnNames, sample = self.flattenJSON(data, table, numRowsToKeep=1000)
+                    columnDescription, numColumns = self.get_column_description(columnNames, sample)
+                    columnDescription = self.createColDescription([c[0] for c in columnDescription], [c[1] for c in columnDescription], table)
+                    createSQL = """CREATE TABLE {table} ({colDesc});""".format(table=table, colDesc=columnDescription)
+                    print(createSQL)
+                    self.execute(createSQL)
+
+                    data = self.flattenJSON(data, table)
+                    chunkData = self.chunks(data)
+                    numColumns = None
+                    for chunk in chunkData:
+                        if not numColumns:
+                            numColumns = len(chunk[0])
+                            placeholder = "%s" if self.db_type == "mysql" else "?"
+                            values_str = "(" + ",".join([placeholder]*numColumns) + ")"
+                        insertQuery = """INSERT INTO {table} VALUES {values}""".format(table=table, values=values_str)
+                        self.execute_write_many(insertQuery, chunk)
+                indexSQL = []
+                if table == "utterances":
+                    indexSQL = ["""CREATE UNIQUE INDEX ut_id_idx ON utterances (message_id);""",
+                                """CREATE INDEX ut_speaker_idx ON utterances (speaker);""",
+                                """CREATE INDEX ut_conversation_id_idx ON utterances (conversation_id);""",
+                                ]
+                elif table == "speakers":
+                    indexSQL = ["""CREATE UNIQUE INDEX sp_speaker_idx ON speakers (speaker);"""]
+                elif table == "conversations":
+                    indexSQL = ["""CREATE UNIQUE INDEX co_conversation_id_idx ON conversations (conversation_id);"""]
+                if indexSQL:
+                    for isql in indexSQL:
+                        print(isql)
+                        self.execute(isql)
+            else:
+                print("The file {file} does not exist or the table already exists in the database, skipping.".format(file=pathToCorpus + table + ".jsonl"))
+                pass
+        return 
+    
+    def read_csv_sample(self, csv_file):
+        #read a random sample of size 1000 from the CSV.
+        sample_size = 1000
+        with open(csv_file, 'r') as f:
+            reader = csv.reader(f, delimiter=',')
+            header = next(reader)
+
+            sample = []
+            for idx in range(sample_size):
+                try:
+                    row = next(reader)
+                    sample.append(row)
+                except StopIteration:
+                    break
+        return header, sample
+    
+    def chunks(self, data, rows=10000):
+        """ Divides the data into 10000 rows each """
+        for i in range(0, len(data), rows):
+            yield data[i:i+rows]
+    
+    def get_column_description(self, column_names, sample):
         """
         Infers the column datatypes from a CSV and returns the SQL column description.
         
@@ -289,23 +492,13 @@ class DataEngine(object):
             except:
                 return x
 
-        #read a random sample of size 1000 from the CSV.
-        sample_size = 1000
-        with open(csv_file, 'r') as f:
-            reader = csv.reader(f, delimiter=',')
-            header = next(reader)
+        def _next_power_of_2(x):  
+            return 1 if x == 0 else 2**(x+2).bit_length()
 
-            sample = []
-            for idx in range(sample_size):
-                try:
-                    row = next(reader)
-                    sample.append(row)
-                except StopIteration:
-                    break
 
         #infer the column types from the sample.
         max_vc_length = 100
-        num_columns = len(header)
+        num_columns = len(column_names)
         column_description = []    
         for cid in range(num_columns):
 
@@ -322,12 +515,13 @@ class DataEngine(object):
                     column_value = str(column_value)
                     length = max(len(column_value), length)
                     if length <= max_vc_length:
-                        column_type = "VARCHAR({})".format(length)
+                        #column_type = "VARCHAR({})".format(length)
+                        column_type = "VARCHAR({})".format(_next_power_of_2(length)-1)
                     else:
                         column_type = "LONGTEXT"
                         break
 
-            column_description.append((header[cid], column_type))
+            column_description.append((column_names[cid], column_type))
 
         return column_description, num_columns
 
@@ -341,8 +535,8 @@ class DataEngine(object):
 
         table_name: str
         """
-
-        column_description, num_columns = self.get_column_description(csv_file)
+        header, sample = self.read_csv_sample(csv_file)
+        column_description, num_columns = self.get_column_description(header, sample)
 
         createSQL = '(' + ', '.join(["{} {}".format(cname, ctype) for cname, ctype in column_description]) + ");"
         createSQL = "CREATE TABLE {} {}".format(table_name, createSQL)
@@ -379,6 +573,35 @@ class DataEngine(object):
 
             print("Reading remaining {} rows into the table...".format(len(chunk)))
             self.execute_write_many(insertQuery, chunk)
+
+    def tableToCSV(self, table_name, csv_file, quoting=csv.QUOTE_ALL):
+        """
+        Dumps the SQLite table into a CSV file.
+        
+        Parameters
+        ------------
+        table_name: str
+
+        csv_file: str
+
+        quoting: [csv.QUOTE_ALL | csv.QUOTE_MINIMAL | csv.QUOTE_NONNUMERIC | csv.QUOTE_NONE]
+        """
+
+        path = os.path.dirname(os.path.abspath(csv_file))
+        if not os.path.isdir(path):
+            print("Path {path} does not exist".format(path=path))
+            sys.exit(1)
+        
+        selectQuery = "SELECT * FROM {}".format(table_name)
+        self.dbCursor.execute(selectQuery)
+        header = [i[0] for i in self.dbCursor.description]
+        with open(csv_file, 'w') as f:
+            csv_writer = csv.writer(f, quoting=quoting)
+            csv_writer.writerow(header)
+            csv_writer.writerows(self.dbCursor)
+
+        return
+
 
 class MySqlDataEngine(DataEngine):
     """
@@ -643,7 +866,7 @@ class MySqlDataEngine(DataEngine):
 
 class SqliteDataEngine(DataEngine):
     def __init__(self, corpdb):
-        super().__init__(corpdb)
+        super().__init__(corpdb, db_type="sqlite")
         (self.dbConn, self.dbCursor) = sm.dbConnect(corpdb)
 
     def get_db_connection(self):
@@ -671,9 +894,9 @@ class SqliteDataEngine(DataEngine):
         list
         """
         if feat_table:
-            sql = "SELECT name FROM sqlite_schema WHERE (type='table') AND (name LIKE '{}')".format(like)
+            sql = "SELECT name FROM sqlite_master WHERE (type='table') AND (name LIKE '{}')".format(like)
         else:
-            sql = "SELECT name FROM sqlite_schema WHERE (type='table') AND (name NOT LIKE 'feat%%') "
+            sql = "SELECT name FROM sqlite_master WHERE (type='table') AND (name NOT LIKE 'feat%%') "
             if isinstance(like, str): sql += " AND (name LIKE '{}')".format(like)
 
         return sm.executeGetList(self.corpdb, self.dbCursor, sql)
@@ -864,30 +1087,4 @@ class SqliteDataEngine(DataEngine):
         #RANDOM() function in SQLiye doesn't consume a seed value.
         return "RANDOM()"
 
-    def tableToCSV(self, table_name, csv_file, quoting=csv.QUOTE_ALL):
-        """
-        Dumps the SQLite table into a CSV file.
-        
-        Parameters
-        ------------
-        table_name: str
-
-        csv_file: str
-
-        quoting: [csv.QUOTE_ALL | csv.QUOTE_MINIMAL | csv.QUOTE_NONNUMERIC | csv.QUOTE_NONE]
-        """
-
-        path = os.path.dirname(os.path.abspath(csv_file))
-        if not os.path.isdir(path):
-            print("Path {path} does not exist".format(path=path))
-            sys.exit(1)
-        
-        selectQuery = "SELECT * FROM {}".format(table)
-        self.dbCursor.execute(selectQuery)
-        header = [i[0] for i in self.dbCursor.description]
-        with open(csv_file, 'w') as f:
-            csv_writer = csv.writer(f, quoting=quoting)
-            csv_writer.writerow(header)
-            csv_writer.writerows(self.dbCursor)
-
-        return
+    
