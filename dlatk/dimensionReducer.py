@@ -468,7 +468,7 @@ class DimensionReducer:
                     self.scalers[outcomeName],
                     self.fSelectors[outcomeName],
                 )
-                transformedX[outcomeName] = _transform(cluster, scaler, fSelector)
+                transformedX[outcomeName] = self._transform(cluster, scaler, fSelector)
         else:
             X, group_ids = alignDictsAsX(
                 groupNormValues + controlValues, sparse, returnKeyList=True
