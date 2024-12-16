@@ -49,7 +49,7 @@ def ctlbTests():
 
     outcome = ["heart_disease", "suicide", "life_satisfaction", "perc_fair_poor_health"]
     args = {
-        "json" : "CTLB_1grams_PREDICTIONS_OUTPUT_TEST.json",
+        "json" : "CTLB_1grams_SingleControls.json",
         "db" : 'ai_fairness',
         "table" : 'msgs_100u',
         "correlField" : 'cnty',
@@ -62,17 +62,17 @@ def ctlbTests():
     #4 socioeconomic variables including median income, unemployment rate, percentage of bachelors degrees, and percentage of high school degree
     # as well as 7 demographic variables including median age; percentage: female, black, Hispanic, foreign-born, married; and population density
     #adaptationFactors = [["logincomeHC01_VC85ACS3yr$10", "unemployAve_BLSLAUS$0910", "bachdegHC03_VC94ACS3yr$10", "hsgradHC03_VC93ACS3yr$10", "perc_less_than_18_chr14_2012", "femalePOP165210D$10", "blackPOP255210D$10", "hispanicPOP405210D$10", "forgnbornHC03_VC134ACS3yr$10", "marriedaveHC03_AC3yr$10", "total_pop10"]]
-    adaptationFactors = [["logincomeHC01_VC85ACS3yr$10", "hsgradHC03_VC93ACS3yr$10", "forgnbornHC03_VC134ACS3yr$10"]]#, ["logincomeHC01_VC85ACS3yr$10"], ["hsgradHC03_VC93ACS3yr$10"], ["forgnbornHC03_VC134ACS3yr$10"]]
+    adaptationFactors = [["logincomeHC01_VC85ACS3yr$10"], ["hsgradHC03_VC93ACS3yr$10"], ["forgnbornHC03_VC134ACS3yr$10"]]#[["logincomeHC01_VC85ACS3yr$10", "hsgradHC03_VC93ACS3yr$10", "forgnbornHC03_VC134ACS3yr$10"]]#, ["logincomeHC01_VC85ACS3yr$10"], ["hsgradHC03_VC93ACS3yr$10"], ["forgnbornHC03_VC134ACS3yr$10"]]
 
     for facs in adaptationFactors:
         args["outcomeControls"] = facs
         args["outcomeFields"] = outcome
         DLATKTests.RegressionTest(**args).run()
         
-        #DLATKTests.ResidualControlRegressionTest(**args).run()
+        DLATKTests.ResidualControlRegressionTest(**args).run()
         args["outcomeFields"] = outcome + facs
-        #DLATKTests.FactorAdaptationRegressionTest(**args).run(facs)
-        #DLATKTests.ResidualFactorAdaptationRegressionTest(**args).run(facs)
+        DLATKTests.FactorAdaptationRegressionTest(**args).run(facs)
+        DLATKTests.ResidualFactorAdaptationRegressionTest(**args).run(facs)
 
     #DLATKTests.ResidualFactorAdaptationRegressionTest(outcomeControls = list(set(test.OUTCOME_CONTROLS) - set(adaptationFactorsToRemove)), outcomeFields=test.OUTCOME_FIELDS + adaptationFactors).run(adaptationFactors=adaptationFactors)
     

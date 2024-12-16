@@ -61,12 +61,12 @@ class ClassificationTest(Test):
         outputStream = open("original_print" + self.json.replace(".json", ".csv"), 'a')
         csv_writer = csv.writer(outputStream)
         csv_writer.writerow([self.name, self.result["tables"]["outcomeFields"], self.result["tables"]["outcomeControls"], self.result["tables"]["feat"]])
-        ClassifyPredictor.printComboControlScoresToCSV(scoresRaw, outputStream)
+        ClassifyPredictor.printComboControlScoresToCSV(scoresRaw, outputStream, delimiter=",")
         outputStream.close()
         outputStream = open("CLASS_" + self.json.replace(".json", ".csv"), 'a')
         csv_writer = csv.writer(outputStream)
         csv_writer.writerow([self.name, self.result["tables"]["outcomeFields"], self.result["tables"]["outcomeControls"], self.result["tables"]["feat"]])
-        ClassifyPredictor.printComboControlPredictionsToCSV(scoresRaw, outputStream)
+        ClassifyPredictor.printComboControlPredictionsToCSV(scoresRaw, outputStream, delimiter=",")
         outputStream.close()
         
         #for score in scoresRaw:

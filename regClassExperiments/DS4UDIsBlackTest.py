@@ -45,38 +45,38 @@ FEATURE_TABLES = [['feat$dr_pca_ema_nagg_v9_txt_reduced100$ema_nagg_v9_txt$user_
 
 #encode age
 def ds4udTests():
-    outcome = ["avg_phq9_score"]#["depression_past_any"]
+    outcome = ["substance_past_any", "depress_past_any", "anxiety_past_any"]#["avg_phq9_score", "avg_pss_score", "avg_pos_affect_score", "avg_neg_affect_score", "avg_audit10_score"]#["depression_past_any"]#
     args = {
-        "json" : "DS4UD_ResPatch.json",
+        "json" : "DS4UD_Outcomes_SingleControlClass.json",
         "db" : 'ds4ud_adapt',
         "table" : 'msgs_ema_words_day_v9',
         "correlField" : 'user_id',
-        "outcomeTable" : "survey_outcomes_waves_agg_v9_more4_Black_Dep_BinAge",
+        "outcomeTable" : "survey_outcomes_waves_agg_v9_mod_v2",
         "outcomeFields" : outcome,#"avg_phq9_score"],
         "outcomeControls" : [],
         "groupFreqThresh" : 0,
         "featTables" : ['feat$roberta_la_meL23con$msgs_ema_words_day_v9$user_id']
     }
 
-    adaptationFactors = [["age_binarized", "is_female", "is_black"]]#, ["age_binarized"], ["is_female"], ["is_black"]]
+    adaptationFactors = [["individual_income"], ["age"], ["is_female"]]#[["is_black"]]#[["age"], ["is_female"], ["is_black"]]
 
     for facs in adaptationFactors:
         
         args["outcomeFields"] = outcome
         args["outcomeControls"] = facs
-        DLATKTests.RegressionTest(**args).run()
-        #DLATKTests.ClassificationTest(**args).run()
+        #DLATKTests.RegressionTest(**args).run()
+        DLATKTests.ClassificationTest(**args).run()
         
-        DLATKTests.ResidualControlRegressionTest(**args).run()
-        args["outcomeFields"] = outcome + facs
+        #DLATKTests.ResidualControlRegressionTest(**args).run()
+        #args["outcomeFields"] = outcome + facs
         #args["outcomeControls"] = []
-        DLATKTests.FactorAdaptationRegressionTest(**args).run(facs)
+        #DLATKTests.FactorAdaptationRegressionTest(**args).run(facs)
 
-        #DLATKTests.FactorAdaptationClassificationTest(**args).run([0])#22])
+        DLATKTests.FactorAdaptationClassificationTest(**args).run([0])#22])
 
         #args["outcomeControls"] = facs
         #args["outcomeControls"] = []
-        DLATKTests.ResidualFactorAdaptationRegressionTest(**args).run(facs)
+        #DLATKTests.ResidualFactorAdaptationRegressionTest(**args).run(facs)
 
 
 

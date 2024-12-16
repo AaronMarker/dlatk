@@ -3,12 +3,13 @@ import matplotlib
 matplotlib.use('Agg')  # Use the 'Agg' backend for headless environments
 import matplotlib.pyplot as plt
 import re
+import numpy as np
 #import seaborn as sns
 
 
 
-FILTER_OUT_CONTROLS_ONLY=True
-FILTER_OUT_LANGUAGE_ONLY=True
+FILTER_OUT_CONTROLS_ONLY=False
+FILTER_OUT_LANGUAGE_ONLY=False
 INCLUDE_VALUES = True
 AVERAGE_METHODS = False
 COL = 'r'
@@ -243,7 +244,8 @@ def plot_all_sections(sections):
                 print("COLUMNS: ", df.columns)
                 df_r['TestType'] = df['Title'].str.replace(' Test', '', case=False, regex=False)
                 df_r['Title'] = '_'.join(max((sub.strip() for sub in word.split("_") if sub), key=len, default='')[:3] for word in outcomes.split(",") if word)
-                
+                df_r['MSE'] = df['mse']
+                df_r['MAE'] = df['mae']
                 df_r['outcome'] = df['outcome']
                 df_r['controls'] = df['model_controls']
                 df_r['N'] = df['test_size'].astype(int) + df['train_size'].astype(int)
@@ -261,6 +263,17 @@ def plot_all_sections(sections):
 
 
     combined_df.to_csv('clean_' + file_path, index=False)
+
+    csv_df = combined_df
+
+    csv_df = csv_df.pivot_table(
+            index=['controls', 'outcome'],
+            columns=['TestType'],
+            values=['r', 'MSE', 'N', 'MAE', 'num_features', 'label', 'controls'],
+            aggfunc='first'
+        )
+    csv_df.to_csv('clean_' + file_path)
+
     if AVERAGE_METHODS:
         combined_df = combined_df.groupby('TestType', as_index=False).mean()
         combined_df['Title'] = ""
@@ -275,6 +288,24 @@ def plot_all_sections(sections):
             'Factor Adaptation Regression': '#931621',   # Example color for 'FacAdaReg'
             'Residualized Factor Adaptation Regression': '#2E294E' # Example color for 'ResFacAdaReg'
         }
+        shortenedNames = {
+            'Regression': 'Lang only',         # Example color for 'Reg'
+            'Regression Add Controls': 'Lang + Cont',   # Example color for 'ResConReg'
+            'Residualized Controls Regression': 'Res Cont',   # Example color for 'ResConReg'
+            'Factor Adaptation Regression': 'Fac Adapt',   # Example color for 'FacAdaReg'
+            'Residualized Factor Adaptation Regression': 'Res Fac Adapt' # Example color for 'ResFacAdaReg'
+        }
+        shortenedOutcomes = {
+            'avg_audit10_score': 'AD',         # Example color for 'Reg'
+            'avg_neg_affect_score': 'NA',   # Example color for 'ResConReg'
+            'avg_phq9_score': 'PHQ9',   # Example color for 'ResConReg'
+            'avg_pos_affect_score': 'PA',   # Example color for 'FacAdaReg'
+            'avg_pss_score': 'PSS', # Example color for 'ResFacAdaReg'
+            'heart_disease' : 'heart disease',         # Example color for 'Reg'
+            'life_satisfaction': 'life satisfaction',   # Example color for 'ResConReg'
+            'perc_fair_poor_health': 'fair poor health',   # Example color for 'ResConReg'
+            'suicide': 'suicide',   # Example color for 'FacAdaReg'
+        }
 
         custom_order = ['Regression', 'Regression Add Controls', 'Residualized Controls Regression', 'Factor Adaptation Regression', 'Residualized Factor Adaptation Regression']
         combined_df['TestType'] = pd.Categorical(combined_df['TestType'], categories=custom_order, ordered=True)
@@ -283,7 +314,7 @@ def plot_all_sections(sections):
         except:
              combined_df = combined_df.sort_values(by=['TestType'], ascending=True)
         num_columns = len(combined_df['TestType'].unique())
-        figure_width = max(12, num_columns * 0.5)  # Adjust the scaling factor as needed
+        figure_width = max(num_columns * 2, 3)  # Adjust the scaling factor as needed
         #''.join(word[:3] for word in combined_df['Title'].split()[:-1] if word)
 
         colors_for_plot = combined_df['TestType'].map(manual_colors)
@@ -291,24 +322,65 @@ def plot_all_sections(sections):
         color_map = plt.get_cmap('tab20')  # You can choose a different colormap
         colors = {title: color_map(i / len(unique_titles)) for i, title in enumerate(unique_titles)}
        
+        # Set bar width
+        bar_width = .8  # Adjust this value to reduce/increase the width of individual bars
+        # Increase spacing between groups of bars
+        spacing = -.9  # Adjust this to increase space between groups of bars
 
-        ax = combined_df.plot(kind='bar', x='outcome', y=COL, stacked=False, color=colors_for_plot)#[colors[title] for title in combined_df['TestType']])
+        # Create an array of x positions for each bar
+        num_groups = len(combined_df['TestType'].unique())
+        x = np.arange(len(combined_df['outcome'].unique()))  # Create x positions based on unique outcomes
+        group_width = bar_width + spacing  # Total width for each group of bars
+
+        ax = combined_df.plot(kind='bar', x='outcome', y=COL, stacked=False, color=colors_for_plot, width=bar_width)#[colors[title] for title in combined_df['TestType']])
         
+        # Create x positions for the bars
+        x = 2.3 * bar_width  + np.arange(len(combined_df['outcome'].unique())) * (bar_width * 6.25)  # Position for each outcome
+
+        # Plotting the bars
+        ax = combined_df.plot(kind='bar', x='outcome', y=COL, stacked=False, color=colors_for_plot, width=bar_width)
+
+        # Set x-ticks to reflect the adjusted positions
+        ax.set_xticks(x)  # Set x-ticks to match the new x positions
+        short_outs = [shortenedOutcomes.get(title, title) for title in combined_df['outcome'].unique()]
+        ax.set_xticklabels(short_outs, rotation=180, ha='center', fontsize=12)  # Center the labels
+
+        # Adjust the positions of the bars
+        for i, bar in enumerate(ax.patches):
+            bar.set_x(bar.get_x() + (i % num_groups) * group_width)  # Shift bars within groups
+
         # Create a custom legend with labels for each color
-        handles = [plt.Line2D([0], [0], color=manual_colors[title], lw=4) for title in unique_titles]
-        ax.legend(handles, unique_titles, title='Sections', bbox_to_anchor=(1, 1), loc='upper left')
+        handles = [plt.Line2D([0], [0], color=manual_colors[title], lw=18) for title in unique_titles]
+        shortened_labels = [shortenedNames.get(title, title) for title in unique_titles]
+        ax.legend(handles, shortened_labels, title='', handlelength=.5, handleheight=1, loc='lower center', bbox_to_anchor=(0.5, -0.25), ncol=3, frameon=False, fontsize=22)
+
         if INCLUDE_VALUES:
             for bar in ax.patches:
                 height = bar.get_height()
-                ax.text(bar.get_x() + bar.get_width() / 2.0, height, '{:.3f}'.format(height), ha='center', va='bottom')
+                formatted_height = '{:.2f}'.format(height).lstrip('0')
+                ax.text(bar.get_x() + bar.get_width() / 2.0, height, formatted_height, ha='center', va='bottom', fontsize=14)
         
-        plt.gcf().set_size_inches(figure_width, 6)
-        plt.ylim(.1, .9)
+
+        # Set tick marks and labels
+        #tick_positions = np.arange(0, len(combined_df['outcome'].unique()), 5)  # Get positions for every 5 bars
+        #tick_labels = combined_df['outcome'].unique()[tick_positions]  # Get labels for those positions
+
+        # Apply the tick positions and labels
+        #ax.set_xticks(tick_positions)
+        #ax.set_xticklabels(tick_labels, rotation=0)  # Rotate labels to horizontal
+
+
+        plt.gcf().set_size_inches(figure_width, 8)
+        #plt.ylim(.35, .9)
+        plt.ylim(.1, .8)
         plt.title('')
-        plt.ylabel('Value')
-        plt.xlabel('Section')
+        ax.set_ylabel('Pearson r', fontsize=24)
+        ax.set_xlabel('', fontsize=24)
         plt.xticks(rotation=90)
-        plt.tight_layout(rect=[0, 0, 0.75, 1])
+        ax.tick_params(axis='y', labelsize=22)  # Increase y-tick label font size
+        ax.tick_params(axis='x', rotation=0, labelsize=24)
+        plt.tight_layout(rect=[0, 0, 1, 1])
+        
         
         # Save the combined plot to a file
         plt.savefig('combined_plot2.png')
@@ -334,7 +406,9 @@ def unique_values_ordered(lst):
 
 
 # File path to your CSV
-file_path = 'original_printCTLB_1grams_Error_test.csv'
+#file_path = 'original_printDS4UD_5_Outcomes.csv'#'original_printCTLB_1grams_predictionsFixed.csv'#'original_printDS4UD_5_Outcomes.csv'
+#file_path = 'original_printCTLB_1grams_SingleControls.csv'
+file_path = 'original_printDS4UD_5_Outcomes_SingleControlAgeFemale.csv'
 
 # Parse the CSV file into sections
 sections = parse_csv(file_path)
