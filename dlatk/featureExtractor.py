@@ -1518,6 +1518,11 @@ class FeatureExtractor(DLAWorker):
                     j+=1
                     msg_rep.append([msg_rep_temp])
 
+            print("AARON DEBUG: ", len(msg_rep))
+            print("AARON DEBUG: ", len(msg_rep[0]))
+            print("AARON DEBUG: ", len(msg_rep[0][0]))
+            print("AARON DEBUG: ", msg_rep[0][0].shape)
+
             #Layer aggregation followed by word aggregation
             user_rep = [] #(num msgs, hidden_dim, lagg)
             for i in range(len(msg_rep)):#Iterating through messages
@@ -1535,7 +1540,11 @@ class FeatureExtractor(DLAWorker):
                         sub_msg_lagg_ = np.concatenate(sub_msg_lagg, axis=-1) 
                     #Getting the mean of all tokens representation
                     #TODO: add word agg list and do eval
+
+                    
                     sub_msg_lagg_wagg = np.mean(sub_msg_lagg_, axis=0) #Shape: (hidden dim, lagg)
+
+                    print("AARON DEBUG 1: ", sub_msg_lagg_wagg.shape)
                     #ReShaping: (1, hidden dim, lagg)
                     sub_msg_lagg_wagg = sub_msg_lagg_wagg.reshape(1, sub_msg_lagg_wagg.shape[0], sub_msg_lagg_wagg.shape[1]) 
                     #Sentence representations
@@ -1615,32 +1624,30 @@ class FeatureExtractor(DLAWorker):
 
             return layers
         
-        def addSentTokenized(messageRows):
 
-            try:
-                import nltk.data
-                import sys
-            except ImportError:
-                print("warning: unable to import nltk.tree or nltk.corpus or nltk.data")
-            sentDetector = nltk.data.load('tokenizers/punkt/english.pickle')
-            messages = list(map(lambda x: x[1], messageRows))
-            parses = []
-            for m_id, message in messageRows:
-                if message is not None: parses.append([m_id, json.dumps(sentDetector.tokenize(tc.removeNonUTF8(tc.treatNewlines(message.strip()))))])
-            return parses
+        def warn_if_truncating(text, tokenizer):
+            max_length = tokenizer.model_max_length
+
+            processed_texts = []
+            
+            tokens = tokenizer(
+                text,
+                truncation=True,
+                max_length=max_length,
+                return_overflowing_tokens=True,
+            )
+
+            # Check if truncation occurred
+            if 'overflowing_tokens' in tokens and tokens['overflowing_tokens'].size(1) > 0:
+                print("Warning: Truncation occurred for input: ", text[:20], "... Max length is ", max_length)
+
 
         dlac.warn("WARNING: new version of BERT and transformer models starts at layer 1 rather than layer 0. Layer 0 is now the input embedding. For example, if you were using layer 10 for the second to last layer of bert-base that is now considered layer 11.")
         ##FIRST MAKE SURE SENTENCE TOKENIZED TABLE EXISTS:
         #sentTable = self.corptable+'_stoks' 
         #assert mm.tableExists(self.corpdb, self.dbCursor, sentTable, charset=self.encoding, use_unicode=self.use_unicode), "Need %s table to proceed with Bert featrue extraction (run --add_sent_tokenized)" % sentTable
         
-        sentTok_onthefly = False if self.data_engine.tableExists(self.corptable+'_stoks') else True
-        sentTable = self.corptable if sentTok_onthefly else self.corptable+'_stoks'
-        if sentTok_onthefly: dlac.warn("WARNING: run --add_sent_tokenized on the message table to avoid tokenizing it every time you generate embeddings")
-        
-        #if len(layerAggregations) > 1:
-        #    dlac.warn("AddBert: !!Does not currently support more than one layer aggregation; only using first aggregation!!")
-        #    layerAggregations = layerAggregations[:1]
+        sentTable = self.corptable
 
         tokenizerName = modelName if tokenizerName is None else tokenizerName
         
@@ -1700,14 +1707,11 @@ class FeatureExtractor(DLAWorker):
 
 
         if modelClass is not None: 
-            #tokenizer = MODEL_DICT[modelClass][1].from_pretrained(tokenizerName)
-            #model = MODEL_DICT[modelClass][0].from_pretrained(modelName, output_hidden_states=True)
-            model = SentenceTransformer('all-MiniLM-L6-v2')
+            model = SentenceTransformer(modelName)
         else:
-            tokenizer = MODEL_DICT[SHORTHAND_DICT[tokenizerName]][1].from_pretrained(tokenizerName)
-            model = MODEL_DICT[SHORTHAND_DICT[modelName]][0].from_pretrained(modelName, output_hidden_states=True)
-
-        model = SentenceTransformer('all-MiniLM-L6-v2')
+            model = SentenceTransformer('all-MiniLM-L6-v2')
+        tokenizer = model.tokenizer
+        
 
         maxTokensPerSeg = tokenizer.max_len_sentences_pair//2
         #Fix for gpt2
@@ -1738,6 +1742,7 @@ class FeatureExtractor(DLAWorker):
                             + '_' + noc+''.join([str(ag[:2]) for ag in aggregations])+'L'+'L'.join([str(l) for l in layersToKeep])+''.join([str(ag[:2]) for ag in layerAggregations]) + 'n'
         else:
             modelNameShort = customTableName
+
         if keepMsgFeats:
             embTableName = self.createFeatureTable(modelNameShort, "VARCHAR(12)", 'DOUBLE', None, valueFunc, correlField='message_id')
         else:
@@ -1754,6 +1759,7 @@ class FeatureExtractor(DLAWorker):
         lengthWarned = False #whether the length warning has been printed yet
         #Each User: ( #message aggregations, #layers, #Word aggregations, hidden size)
         for cfRow in cfRows:
+            
             #user_id
             cf_id = cfRow[0]
             mids = set() #currently seen message ids
@@ -1761,49 +1767,24 @@ class FeatureExtractor(DLAWorker):
 
             #grab sents by messages for that correl field:
             messageRows = self.getMessagesForCorrelField(cf_id, messageTable = sentTable, warnMsg=True)
-            if sentTok_onthefly:
-                messageRows = addSentTokenized(messageRows)
+            
             input_sents = []
             token_type_ids = []
             attention_mask = []
-            message_id_seq = [] 
+            message_id_seq = []
+
             #stores the sequence of message_id corresponding to the message embeddings for applying aggregation later 
             #along with the sentence 1 and sentence 2 lengths
             for messageRow in messageRows:
                 message_id = messageRow[0]
-                try:
-                    messageSents = loads(messageRow[1])
-                except NameError: 
-                    dlac.warn("Error: Cannot import jsonrpclib or simplejson in order to get sentences for Bert")
-                    sys.exit(1)
-                except json.JSONDecodeError:
-                    dlac.warn("WARNING: JSONDecodeError on %s. Skipping Message"%str(messageRow))
-                    continue
-                except:
-                    dlac.warn("Warning: cannot load message, skipping")
-                    continue
+                messageSent = messageRow[1]
 
-                if ((message_id not in mids) and (len(messageSents) > 0)):
+                if ((message_id not in mids) and (len(messageSent) > 0)):
                     msgs+=1
-                    subMessages=[messageSents]
-
                     i = 0
-
-                    for i in range(len(messageSents)):
-                        #TODO: preprocess to remove newlines
-                        #sentsTok = [tokenizer.tokenize(s) for s in sents]
-                        #print(sents)#debug
-                        #check for overlength:
-                        
-                        thisSentPair = " ".join(messageSents[i:i+2]) #Give two sequences as input
-                        input_sents.append(thisSentPair)
-                        if i<(len(messageSents)-1): #Collecting the sentence length of the pair along with their message IDs
-                            # If multiple sentences in a message, it will store the message_ids multiple times for aggregating emb later.
-                            message_id_seq.append([message_id, len(messageSents[i]), len(messageSents[i+1])]) 
-                        else:
-                            message_id_seq.append([message_id, len(messageSents[i]), 0])
-                        #for single sentence
-                        #message_id_seq.extend([[message_id, len(string)] for string in input_sents])
+                    warn_if_truncating(messageSent, tokenizer)
+                    input_sents.append(messageSent)
+                    message_id_seq.append([message_id, len(messageSent)])
                 
                 if msgs % int(dlac.PROGRESS_AFTER_ROWS/5) == 0: #progress update
                     dlac.warn("Messages Read: %.2f k" % (msgs/1000.0))
@@ -1821,9 +1802,9 @@ class FeatureExtractor(DLAWorker):
                 #print (input_ids_padded.shape, token_type_ids_padded.shape, attention_mask_padded.shape)
                 encSelectLayers_temp = []
 
-                print("DEBUG: ", type(input_sents))
+                '''print("DEBUG: ", type(input_sents))
                 print("DEBUG: ", input_sents[0])
-                print("DEBUG Batch: ", batch_size)
+                print("DEBUG Batch: ", batch_size)'''
                 #print("DEBUG Batch: ", input_sents[i*batch_size:(i+1)*batch_size])
                 with torch.no_grad():
                     # embeddings = model.encode(input_sents[i*batch_size:(i+1)*batch_size], device='cuda')
@@ -1836,12 +1817,13 @@ class FeatureExtractor(DLAWorker):
                     print("SHAPE: ", embeddings.shape)
                     
                 #encSelectLayers.append(np.transpose(np.array(embeddings),(1,2,3,0)))
-                encSelectLayers.append(np.array(embeddings)) #Shape= batch_size, embedding size (32, 384)
+                encSelectLayers.append(np.expand_dims(np.array(embeddings), axis=1)) #Shape= batch_size, embedding size (32, 384)
 
             i = 0
             j = 0
-            msg_rep = [] #Shape: (num layers, seq Len, hidden_dim)
-            while i < len(message_id_seq):
+            msg_rep = [encSelectLayers]
+            #Shape: (num layers, seq Len, hidden_dim)
+            '''while i < len(message_id_seq):
                 # Does next embedding also pertain to the same message
                 if i == len(message_id_seq)-1:
                     next_msg_same = False
@@ -1888,7 +1870,13 @@ class FeatureExtractor(DLAWorker):
                     #print (seq_len, msg_rep_temp.shape) #debug
                     i+=1
                     j+=1
-                    msg_rep.append([msg_rep_temp])
+                    msg_rep.append([msg_rep_temp])'''
+
+            '''print("AARON DEBUG: ", len(msg_rep))
+            print("AARON DEBUG: ", len(msg_rep[0]))
+            print("AARON DEBUG: ", len(msg_rep[0][0]))
+
+            print("AARON DEBUG: ", msg_rep[0][0].shape)'''
 
             #Layer aggregation followed by word aggregation
             user_rep = [] #(num msgs, hidden_dim, lagg)
@@ -1909,6 +1897,7 @@ class FeatureExtractor(DLAWorker):
                     #TODO: add word agg list and do eval
                     sub_msg_lagg_wagg = np.mean(sub_msg_lagg_, axis=0) #Shape: (hidden dim, lagg)
                     #ReShaping: (1, hidden dim, lagg)
+                    print("AARON DEBUG 1: ", sub_msg_lagg_wagg.shape)
                     sub_msg_lagg_wagg = sub_msg_lagg_wagg.reshape(1, sub_msg_lagg_wagg.shape[0], sub_msg_lagg_wagg.shape[1]) 
                     #Sentence representations
                     sent_rep.append(sub_msg_lagg_wagg)
