@@ -1639,7 +1639,23 @@ class FeatureExtractor(DLAWorker):
 
             return tokens
 
-        sentTable = self.corptable
+        def addSentTokenized(messageRows):
+
+            try:
+                import nltk.data
+                import sys
+            except ImportError:
+                print("warning: unable to import nltk.tree or nltk.corpus or nltk.data")
+            sentDetector = nltk.data.load('tokenizers/punkt/english.pickle')
+            messages = list(map(lambda x: x[1], messageRows))
+            parses = []
+            for m_id, message in messageRows:
+                if message is not None: parses.append([m_id, json.dumps(sentDetector.tokenize(tc.removeNonUTF8(tc.treatNewlines(message.strip()))))])
+            return parses
+
+        sentTok_onthefly = False if self.data_engine.tableExists(self.corptable+'_stoks') else True
+        sentTable = self.corptable if sentTok_onthefly else self.corptable+'_stoks'
+        if sentTok_onthefly: dlac.warn("WARNING: run --add_sent_tokenized on the message table to avoid tokenizing it every time you generate embeddings")
         
         try:
             import torch
@@ -1714,7 +1730,8 @@ class FeatureExtractor(DLAWorker):
 
             #grab sents by messages for that correl field:
             messageRows = self.getMessagesForCorrelField(cf_id, messageTable = sentTable, warnMsg=True)
-            tokenizer = model.tokenizer
+            if sentTok_onthefly:
+                messageRows = addSentTokenized(messageRows)
             
             input_sents = []
             token_type_ids = []
