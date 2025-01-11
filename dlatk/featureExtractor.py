@@ -1518,11 +1518,6 @@ class FeatureExtractor(DLAWorker):
                     j+=1
                     msg_rep.append([msg_rep_temp])
 
-            print("AARON DEBUG: ", len(msg_rep))
-            print("AARON DEBUG: ", len(msg_rep[0]))
-            print("AARON DEBUG: ", len(msg_rep[0][0]))
-            print("AARON DEBUG: ", msg_rep[0][0].shape)
-
             #Layer aggregation followed by word aggregation
             user_rep = [] #(num msgs, hidden_dim, lagg)
             for i in range(len(msg_rep)):#Iterating through messages
@@ -1541,10 +1536,8 @@ class FeatureExtractor(DLAWorker):
                     #Getting the mean of all tokens representation
                     #TODO: add word agg list and do eval
 
-                    
                     sub_msg_lagg_wagg = np.mean(sub_msg_lagg_, axis=0) #Shape: (hidden dim, lagg)
 
-                    print("AARON DEBUG 1: ", sub_msg_lagg_wagg.shape)
                     #ReShaping: (1, hidden dim, lagg)
                     sub_msg_lagg_wagg = sub_msg_lagg_wagg.reshape(1, sub_msg_lagg_wagg.shape[0], sub_msg_lagg_wagg.shape[1]) 
                     #Sentence representations
@@ -1679,15 +1672,12 @@ class FeatureExtractor(DLAWorker):
             batch_size=batchSize
             cuda = False
         dlac.warn("Done.")
-        #print("AARON MODEL: ", model[0])
-        #print("AARON MODEL1: ", model)
-        #print("AARON MODEL1: ", model[0].auto_model)
         # Access the transformer model (which is based on Hugging Face's transformer models)
         layersToKeep = parse_layers(layersToKeep, model[0].auto_model.config.num_hidden_layers)
         layersToKeep = np.array(layersToKeep, dtype='int')
 
         #TODO: Change the model name later
-        #Need to test noc
+        #NOC NOT IMPLEMENTED
         noc = ''
         if noContext: noc = 'noc_'#adds noc to name if no context
         if customTableName is None:
@@ -1730,7 +1720,6 @@ class FeatureExtractor(DLAWorker):
             message_id_seq = []
 
             #stores the sequence of message_id corresponding to the message embeddings for applying aggregation later 
-            #along with the sentence 1 and sentence 2 lengths
             for messageRow in messageRows:
                 message_id = messageRow[0]
                 messageSent = messageRow[1]
@@ -1739,8 +1728,6 @@ class FeatureExtractor(DLAWorker):
                     msgs+=1
                     i = 0
                     tokens = tokenizeWithLengthWarning(messageSent, tokenizer)
-                    #print("AARON DEBUG ID: ", message_id)
-                    #print("AARON DEBUG TOKENS: ", tokens)
                     input_sents.append(torch.tensor(tokens['input_ids'], dtype=torch.long).squeeze(0))
                     attention_mask.append(tokens['attention_mask'].squeeze(0))
                     message_id_seq.append([message_id, len(tokens)])
@@ -1750,15 +1737,10 @@ class FeatureExtractor(DLAWorker):
                 mids.add(message_id)
                 midList.append(message_id)
             
-            #for sent in input_sents:
-            print("AARON DEBUG ", cf_id, " messageROW: ", midList)
 
             #Number of Batches
             num_batches = int(np.ceil(len(input_sents)/batch_size))
             encSelectLayers = []
-            #print ('len(input_ids): ',len(input_ids))
-            #print ('Num Batches:', num_batches)
-            #TODO: Check if len(messageSents) = 0, skip this and print warning
 
             transformer = model[0].auto_model
             pooling_layer = model[1]
@@ -1777,77 +1759,51 @@ class FeatureExtractor(DLAWorker):
                 input_ids_padded = input_ids_padded.long()
                 attention_mask_padded = attention_mask_padded.long()
                 
-                #print("AARON DEBUG inputs shape: ", input_ids_padded)
-                #print("AARON DEBUG attention_mask_padded shape: ", attention_mask_padded)
                 with torch.no_grad():
                     outputs = transformer(input_ids=input_ids_padded, attention_mask=attention_mask_padded, output_hidden_states=True)
                     hidden_states = outputs.hidden_states
                 
-                for lyr in layersToKeep: #Shape: (batch_size, max Seq len, hidden dim, #layers)
-                    #print("AARON DEBUG EMBEDDINGS DIM: ", hidden_states[lyr].shape)
-                    #print("AARON DEBUG EMBEDDINGS: ", hidden_states[lyr])
+                for lyr in layersToKeep:
                     # Apply pooling
                     pooled_emb = pooling_layer({"token_embeddings": hidden_states[lyr], "attention_mask": attention_mask_padded})
                     # Apply normalization
                     normalized_emb = normalize_layer(pooled_emb)
-                    #print("AARON DEBUG SHAPE +================ ", layersToKeep)
-                    #print("AARON DEBUG SHAPE +================ ", len(hidden_states))
                     encSelectLayers_temp.append(normalized_emb["sentence_embedding"].detach().cpu().numpy())
-                    #print("AARON DEBUG EMBEDDINGS: ", encSelectLayers_temp[-1])
-                    #print("AARON DEBUG SHAPE +================ ", normalized_emb["sentence_embedding"])
+
                 encSelectLayers.append(np.transpose(np.array(encSelectLayers_temp),(1,2,0)))
 
             i = 0
-            msg_rep = encSelectLayers #(num_of_batches, sentences_in_batch, emb_dim)
+            msg_rep = encSelectLayers
             
             #Layer aggregation followed by word aggregation
-            user_rep = [] #(num msgs, hidden_dim, lagg)
-            for i in range(len(msg_rep)):#Iterating through messages
+            user_rep = []
+            for i in range(len(msg_rep)):
                 sub_msg = msg_rep[i]
                 sub_msg_lagg = []
                 for lagg in layerAggregations:
                     if lagg == 'concatenate':
-                        sub_msg_lagg.append(sub_msg) #(seq len, hidden dim, num layers)
+                        sub_msg_lagg.append(sub_msg)
                     else:
-                        sub_msg_lagg.append(eval("np."+lagg+"(sub_msg, axis=-1)").reshape(sub_msg.shape[0], sub_msg.shape[1], 1) )#(seq len, hidden dim, 1)
-                    #Shape: (seq len, hidden dim, (num_layers*(concatenate==True)+(sum(other layer aggregations))))
-                    #Example: lagg = [mean, min, concatenate], layers = [8,9]; Shape: (seq len, hidden dim, 2 + 1 + 1)
-                    print("AARON DEBUG SHAPE 1 +================ ", len(sub_msg_lagg))
+                        sub_msg_lagg.append(eval("np."+lagg+"(sub_msg, axis=-1)").reshape(sub_msg.shape[0], sub_msg.shape[1], 1) )
                     sub_msg_lagg_ = np.concatenate(sub_msg_lagg, axis=-1)
-                    print("AARON DEBUG SHAPE 2 +================ ", sub_msg_lagg_.shape)
-                #Getting the mean of all tokens representation
-                #Accumulate all the sentence representation of a user
-                
                 user_rep.append(sub_msg_lagg_.reshape(sub_msg_lagg_.shape[0], -1))
-            print("AARON DEBUG: ", len(user_rep))
-            print("AARON DEBUG: ", user_rep[0].shape)
             user_rep = np.vstack(user_rep)
-            print("AARON DEBUG: ", user_rep.shape)
             if user_rep.shape[0] == 0:
                 continue
             #Flatten the features [layer aggregations] to a single dimension.
-            print("AARON DEBUG SHAPE1: ", user_rep.shape)
-            #user_rep = user_rep.reshape(user_rep.shape[1], -1)
-            print("AARON DEVUG SHAPE15: ", user_rep.shape)
             if len(user_rep)>0:
                 embFeats = dict()
                 if keepMsgFeats: #just store message embeddings
                     embRows = []
-                    print("AARON DEBUG SHAPE2: ", user_rep.shape)
                     for mid, msg in zip(midList, user_rep):
-                        print("AARON DEBUG mid=========: ", mid)
-                        #print("AARON DEBUG msg=========: ", msg)
                         embRows.extend([(str(mid), str(k), v, valueFunc(v)) for (k, v) in enumerate(msg)])
                     wsql = """INSERT INTO """+embTableName+""" (group_id, feat, value, group_norm) values (%s, %s, %s, %s)"""
                     mm.executeWriteMany(self.corpdb, self.dbCursor, wsql, embRows, writeCursor=self.dbConn.cursor(), charset=self.encoding, use_unicode=self.use_unicode, mysql_config_file=self.mysql_config_file)
                     
                 else:#Applying message aggregations
                     for ag in aggregations:
-                        #print("AARON DEBUG; ", user_rep.shape)
                         thisAg = eval("np."+ag+"(user_rep, axis=0)")
                         embFeats.update([(str(k)+ag[:2], v) for (k, v) in enumerate(thisAg)])
-                        #print("AARON DEBUG sfefsegfsegse; ", thisAg.shape)
-                        #wsql = """INSERT INTO """+embTableName+""" (group_id, feat, value, group_norm) values ('"""+str(cf_id)+"""', %s, %s, %s)"""
                         insert_idx_start = 0
                         insert_idx_end = dlac.MYSQL_BATCH_INSERT_SIZE
                         query = self.qb.create_insert_query(embTableName).set_values([("group_id",str(cf_id)),("feat",""),("value",""),("group_norm","")])
@@ -1857,7 +1813,6 @@ class FeatureExtractor(DLAWorker):
                             query.execute_query(insert_rows)
                             insert_idx_start += dlac.MYSQL_BATCH_INSERT_SIZE
                             insert_idx_end += dlac.MYSQL_BATCH_INSERT_SIZE
-                        #self.data_engine.execute_write_many(wsql, embRows)
             
         dlac.warn("Done Reading / Inserting.")
         dlac.warn("Adding Keys (if goes to keycache, then decrease MAX_TO_DISABLE_KEYS or run myisamchk -n).")
