@@ -1657,7 +1657,9 @@ class FeatureExtractor(DLAWorker):
            dlac.warn("Please install pytorch and transformers and sentence_transformers.")
            sys.exit(1)
 
-        tokenizer = AutoTokenizer.from_pretrained(modelName)
+
+        tokenizerName = modelName if tokenizerName is None else tokenizerName
+        tokenizer = AutoTokenizer.from_pretrained(tokenizerName)
         model = SentenceTransformer(modelName)
 
         #Fix for gpt2
