@@ -1453,7 +1453,7 @@ class FeatureExtractor(DLAWorker):
                 if len(token_type_ids)>0:
                     token_type_ids_padded = token_type_ids_padded.long()
                 attention_mask_padded = attention_mask_padded.long()
-                
+
                 #print (input_ids_padded.shape, token_type_ids_padded.shape, attention_mask_padded.shape)
                 encSelectLayers_temp = []
                 with torch.no_grad():
@@ -1594,7 +1594,7 @@ class FeatureExtractor(DLAWorker):
 
     def addSentenceEmbTable(self, modelName, tokenizerName, modelClass=None, batchSize=dlac.GPU_BATCH_SIZE, aggregations = ['mean'], layersToKeep = [8,9,10,11], maxTokensPerSeg=255, noContext=True, layerAggregations = ['concatenate'], wordAggregations = ['mean'], keepMsgFeats = False, customTableName = None, valueFunc = lambda d: d):
         '''
-            Adds transformer embeddings
+            Adds sentence transformer embeddings
             ---------------------------
             Args:
                 modelName (str): model name or path of transformer (huggingface supported) model
@@ -1608,6 +1608,8 @@ class FeatureExtractor(DLAWorker):
                 batchSize (int): batch size for GPU processing
         '''
         
+        sentTruncationWarning = False
+
         def parse_layers(layers, num_hidden_layers):
             """
                 Checks the validity of the input layer number
@@ -1623,35 +1625,30 @@ class FeatureExtractor(DLAWorker):
             layers = sorted(list(set(layers)))
 
             return layers
-        
 
-        def warn_if_truncating(text, tokenizer):
+        def tokenizeWithLengthWarning(text, tokenizer):
+            nonlocal sentTruncationWarning
             max_length = tokenizer.model_max_length
-
-            processed_texts = []
             
             tokens = tokenizer(
                 text,
+                return_tensors="pt",
                 truncation=True,
                 max_length=max_length,
-                return_overflowing_tokens=True,
-            )
+            ).to('cuda')
 
-            # Check if truncation occurred
-            if 'overflowing_tokens' in tokens and tokens['overflowing_tokens'].size(1) > 0:
-                print("Warning: Truncation occurred for input: ", text[:20], "... Max length is ", max_length)
+            if not sentTruncationWarning:
+                # Check if truncation occurred
+                num_tokens = len(tokenizer.encode(text, add_special_tokens=True))
+                if num_tokens > max_length:
+                    print("Warning: Truncation occurred for input: ", text[:40], "... Not Warning again")
+                    sentTruncationWarning = True
 
+            return tokens
 
-        dlac.warn("WARNING: new version of BERT and transformer models starts at layer 1 rather than layer 0. Layer 0 is now the input embedding. For example, if you were using layer 10 for the second to last layer of bert-base that is now considered layer 11.")
-        ##FIRST MAKE SURE SENTENCE TOKENIZED TABLE EXISTS:
-        #sentTable = self.corptable+'_stoks' 
-        #assert mm.tableExists(self.corpdb, self.dbCursor, sentTable, charset=self.encoding, use_unicode=self.use_unicode), "Need %s table to proceed with Bert featrue extraction (run --add_sent_tokenized)" % sentTable
-        
         sentTable = self.corptable
-
-        tokenizerName = modelName if tokenizerName is None else tokenizerName
         
-        try: 
+        try:
             import torch
             from torch.nn.utils.rnn import pad_sequence
             from transformers import AutoConfig, AutoModel, AutoTokenizer
@@ -1663,57 +1660,13 @@ class FeatureExtractor(DLAWorker):
 
             #from transformers import ElectraModel, ElectraTokenizer
         except ImportError:
-           dlac.warn("warning: unable to import torch or transformers")
-           dlac.warn("Please install pytorch and transformers.")
+           dlac.warn("warning: unable to import torch or transformers or sentence_transformers")
+           dlac.warn("Please install pytorch and transformers and sentence_transformers.")
            sys.exit(1)
 
-        SHORTHAND_DICT = { 'bert-base-uncased': 'bert', 'bert-large-uncased': 'bert', 'bert-base-cased': 'bert', 'bert-large-cased': 'bert',
-                            'SpanBERT/spanbert-base-cased': 'bert', 'SpanBERT/spanbert-large-cased': 'bert',
-                            'allenai/scibert_scivocab_cased': 'bert', 'allenai/scibert_scivocab_uncased': 'bert',# 'transfo-xl-wt103': 'transfoXL',
-                            #'openai-gpt': 'OpenAIGPT', 
-                            'gpt2': 'GPT2', 'gpt2-medium': 'GPT2', 'gpt2-large': 'GPT2', 'gpt2-xl': 'GPT2',
-                            'xlnet-base-cased': 'XLNet', 'xlnet-large-cased': 'XLNet',
-                            'roberta-base': 'Roberta', 'roberta-large': 'Roberta', 'roberta-large-mnli': 'Roberta', 
-                            'distilroberta-base': 'Roberta', 'roberta-base-openai-detector': 'Roberta', 'roberta-large-openai-detector': 'Roberta',
-                            'distilbert-base-uncased': 'DistilBert', 'distilbert-base-cased': 'DistilBert', 
-                            'distilbert-base-multilingual-cased': 'DistilBert', 'distilbert-base-cased-distilled-squad': 'DistilBert',
-                            'albert-base-v2': 'Albert', 'albert-large-v2': 'Albert', 'albert-xlarge-v2': 'Albert', 'albert-xxlarge-v2': 'Albert',
-                            'xlm-roberta-base': 'XLMRoberta', 'xlm-roberta-large': 'XLMRoberta', #'t5-small': 'T5', 't5-base': 'T5', 't5-large': 'T5', 
-                            'mxbai-embed-large-v1': 'auto',
-        }
+        tokenizer = AutoTokenizer.from_pretrained(modelName)
+        model = SentenceTransformer(modelName)
 
-        MODEL_DICT = {
-            #'transfoXL': [TransfoXLModel, TransfoXLTokenizer], #Need to look into tokenization
-            'auto': [AutoModel, AutoTokenizer],
-            'bert' : [BertModel, BertTokenizer],
-            'XLNet': [XLNetModel, XLNetTokenizer], 
-            #'OpenAIGPT': [OpenAIGPTModel,  OpenAIGPTTokenizer], # Need to fix tokenization [Token type Ids], Doesn't have CLS or SEP
-            'Roberta': [RobertaModel, RobertaTokenizer], # Need to fix tokenization [Token type Ids]
-            'GPT2': [GPT2Model, GPT2Tokenizer], # Need to fix tokenization [Token type Ids], Doesn't have CLS or SEP
-            'DistilBert': [DistilBertModel, DistilBertTokenizer], #Doesn't take Token Type IDS as input
-            #'XLM': [XLMModel, XLMTokenizer], #Need to decide on the specific models
-            'XLMRoberta': [XLMRobertaModel, XLMRobertaTokenizer],  # Need to fix tokenization [Token type Ids]
-            'Albert': [AlbertModel, AlbertTokenizer],
-            #'Electra': [ElectraModel, ElectraTokenizer], #Need to understand the discriminator and generator outputs better
-            #'T5': [T5Model, T5Tokenizer] #Doesn't take Token Type IDS as input, Doesn't have CLS or SEP, Need to understand how to input the decoder_input_ids/decoder_inputs_embeds
-        }
-
-        #print (modelName) #debug
-        #Fix AutoModel, runs into a weird positional embedding issue right now.
-        #config = AutoConfig.from_pretrained(modelName, output_hidden_states=True)
-        #tokenizer = AutoTokenizer.from_pretrained(tokenizerName)
-        #model = AutoModel.from_pretrained(modelName, config=config)
-
-
-
-        if modelClass is not None: 
-            model = SentenceTransformer(modelName)
-        else:
-            model = SentenceTransformer('all-MiniLM-L6-v2')
-        tokenizer = model.tokenizer
-        
-
-        maxTokensPerSeg = tokenizer.max_len_sentences_pair//2
         #Fix for gpt2
         pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id else 0
         model.eval()
@@ -1726,7 +1679,9 @@ class FeatureExtractor(DLAWorker):
             batch_size=batchSize
             cuda = False
         dlac.warn("Done.")
-
+        #print("AARON MODEL: ", model[0])
+        #print("AARON MODEL1: ", model)
+        #print("AARON MODEL1: ", model[0].auto_model)
         # Access the transformer model (which is based on Hugging Face's transformer models)
         layersToKeep = parse_layers(layersToKeep, model[0].auto_model.config.num_hidden_layers)
         layersToKeep = np.array(layersToKeep, dtype='int')
@@ -1759,7 +1714,7 @@ class FeatureExtractor(DLAWorker):
         lengthWarned = False #whether the length warning has been printed yet
         #Each User: ( #message aggregations, #layers, #Word aggregations, hidden size)
         for cfRow in cfRows:
-            
+
             #user_id
             cf_id = cfRow[0]
             mids = set() #currently seen message ids
@@ -1767,6 +1722,7 @@ class FeatureExtractor(DLAWorker):
 
             #grab sents by messages for that correl field:
             messageRows = self.getMessagesForCorrelField(cf_id, messageTable = sentTable, warnMsg=True)
+            tokenizer = model.tokenizer
             
             input_sents = []
             token_type_ids = []
@@ -1782,148 +1738,115 @@ class FeatureExtractor(DLAWorker):
                 if ((message_id not in mids) and (len(messageSent) > 0)):
                     msgs+=1
                     i = 0
-                    warn_if_truncating(messageSent, tokenizer)
-                    input_sents.append(messageSent)
-                    message_id_seq.append([message_id, len(messageSent)])
+                    tokens = tokenizeWithLengthWarning(messageSent, tokenizer)
+                    #print("AARON DEBUG ID: ", message_id)
+                    #print("AARON DEBUG TOKENS: ", tokens)
+                    input_sents.append(torch.tensor(tokens['input_ids'], dtype=torch.long).squeeze(0))
+                    attention_mask.append(tokens['attention_mask'].squeeze(0))
+                    message_id_seq.append([message_id, len(tokens)])
                 
                 if msgs % int(dlac.PROGRESS_AFTER_ROWS/5) == 0: #progress update
                     dlac.warn("Messages Read: %.2f k" % (msgs/1000.0))
                 mids.add(message_id)
                 midList.append(message_id)
             
+            #for sent in input_sents:
+            print("AARON DEBUG ", cf_id, " messageROW: ", midList)
+
             #Number of Batches
             num_batches = int(np.ceil(len(input_sents)/batch_size))
             encSelectLayers = []
             #print ('len(input_ids): ',len(input_ids))
             #print ('Num Batches:', num_batches)
             #TODO: Check if len(messageSents) = 0, skip this and print warning
+
+            transformer = model[0].auto_model
+            pooling_layer = model[1]
+            normalize_layer = model[2]
+        
+
+
             for i in range(num_batches):
-                
-                #print (input_ids_padded.shape, token_type_ids_padded.shape, attention_mask_padded.shape)
                 encSelectLayers_temp = []
 
-                '''print("DEBUG: ", type(input_sents))
-                print("DEBUG: ", input_sents[0])
-                print("DEBUG Batch: ", batch_size)'''
-                #print("DEBUG Batch: ", input_sents[i*batch_size:(i+1)*batch_size])
+                input_ids_padded = pad_sequence(input_sents[i*batch_size:(i+1)*batch_size], batch_first = True, padding_value=pad_token_id)
+                attention_mask_padded = pad_sequence(attention_mask[i*batch_size:(i+1)*batch_size], batch_first = True, padding_value=0)
+                if cuda:
+                    input_ids_padded = input_ids_padded.to('cuda') 
+                    attention_mask_padded = attention_mask_padded.to('cuda')
+                input_ids_padded = input_ids_padded.long()
+                attention_mask_padded = attention_mask_padded.long()
+                
+                #print("AARON DEBUG inputs shape: ", input_ids_padded)
+                #print("AARON DEBUG attention_mask_padded shape: ", attention_mask_padded)
                 with torch.no_grad():
-                    # embeddings = model.encode(input_sents[i*batch_size:(i+1)*batch_size], device='cuda')
-                    embeddings = model.encode(input_sents[i*batch_size:(i+1)*batch_size], device='cuda')
-
-                    #Getting all layers output
-                    #encAllLayers = encAllLayers[-1]            
-                    #for lyr in layersToKeep: #Shape: (batch_size, max Seq len, hidden dim, #layers)
-                    #    encSelectLayers_temp.append(encAllLayers[int(lyr)].detach().cpu().numpy())
-                    print("SHAPE: ", embeddings.shape)
-                    
-                #encSelectLayers.append(np.transpose(np.array(embeddings),(1,2,3,0)))
-                encSelectLayers.append(np.expand_dims(np.array(embeddings), axis=1)) #Shape= batch_size, embedding size (32, 384)
+                    outputs = transformer(input_ids=input_ids_padded, attention_mask=attention_mask_padded, output_hidden_states=True)
+                    hidden_states = outputs.hidden_states
+                
+                for lyr in layersToKeep: #Shape: (batch_size, max Seq len, hidden dim, #layers)
+                    #print("AARON DEBUG EMBEDDINGS DIM: ", hidden_states[lyr].shape)
+                    #print("AARON DEBUG EMBEDDINGS: ", hidden_states[lyr])
+                    # Apply pooling
+                    pooled_emb = pooling_layer({"token_embeddings": hidden_states[lyr], "attention_mask": attention_mask_padded})
+                    # Apply normalization
+                    normalized_emb = normalize_layer(pooled_emb)
+                    #print("AARON DEBUG SHAPE +================ ", layersToKeep)
+                    #print("AARON DEBUG SHAPE +================ ", len(hidden_states))
+                    encSelectLayers_temp.append(normalized_emb["sentence_embedding"].detach().cpu().numpy())
+                    #print("AARON DEBUG EMBEDDINGS: ", encSelectLayers_temp[-1])
+                    #print("AARON DEBUG SHAPE +================ ", normalized_emb["sentence_embedding"])
+                encSelectLayers.append(np.transpose(np.array(encSelectLayers_temp),(1,2,0)))
 
             i = 0
-            j = 0
-            msg_rep = [encSelectLayers]
-            #Shape: (num layers, seq Len, hidden_dim)
-            '''while i < len(message_id_seq):
-                # Does next embedding also pertain to the same message
-                if i == len(message_id_seq)-1:
-                    next_msg_same = False
-                else:
-                    next_msg_same = True if message_id_seq[i][0] == message_id_seq[i+1][0] else False
-                if next_msg_same:
-                    # Process all sub messages pertaining to a single message at once
-                    msg_rep_temp = []
-                    # Store the first message's first sentence embedding followed by averaging the second sentence of that message and the first sentence of next message's embedding   
-                    msg_rep_temp.append(encSelectLayers[i//batch_size][j%batch_size, :message_id_seq[i][1]])
-                    while next_msg_same:
-                        enc_batch_number = i//batch_size
-                        next_enc_batch_number = (i+1)//batch_size
-                        seq_len1 = message_id_seq[i][1]
-                        seq_len2 = message_id_seq[i][2]
-                        #Shape: (seq2 len, hidden dim, num layers)
-                        #Apply mean for the embedding of the sentence that appeared second in the current part and first in the next part
-                        print("AARON DEBUG: ", encSelectLayers[enc_batch_number][j%batch_size, seq_len1:seq_len1+seq_len2].shape)
-                        print("AARON DEBUG: ", encSelectLayers[next_enc_batch_number][(j+1)%batch_size, :seq_len2].shape)
-                        print("AARON DEBUG1: ", seq_len1)
-                        print("AARON DEBUG2: ", seq_len2)
-                        for p in encSelectLayers[1]:
-                            print("AARON DEBUG SHAPE: ", p.shape)
-                        sent2enc = (encSelectLayers[enc_batch_number][j%batch_size, seq_len1:seq_len1+seq_len2] + encSelectLayers[next_enc_batch_number][(j+1)%batch_size, :seq_len2])/2
-                        #Store the representation
-                        msg_rep_temp.append(sent2enc)
-                        #print (message_id_seq[i], sent2enc.shape) #debug
-                        i+=1
-                        j+=1
-                        #Check if the next part of the message has single sentence, if yes, break 
-                        if message_id_seq[i][2] == 0:
-                            i+=1
-                            j+=1
-                            break                        
-                        next_msg_same = True if message_id_seq[i][0] == message_id_seq[i+1][0] else False
-                    #Store all the representation as a list
-                    msg_rep.append(msg_rep_temp)
-                else:
-                    # Single message representations.
-                    enc_batch_number = i//batch_size
-                    seq_len = message_id_seq[i][1]
-                    #Store the message representation
-                    msg_rep_temp = encSelectLayers[enc_batch_number][j%batch_size, :seq_len] #Shape: (seq len, hidden dim, #layers)
-                    #print (seq_len, msg_rep_temp.shape) #debug
-                    i+=1
-                    j+=1
-                    msg_rep.append([msg_rep_temp])'''
-
-            '''print("AARON DEBUG: ", len(msg_rep))
-            print("AARON DEBUG: ", len(msg_rep[0]))
-            print("AARON DEBUG: ", len(msg_rep[0][0]))
-
-            print("AARON DEBUG: ", msg_rep[0][0].shape)'''
-
+            msg_rep = encSelectLayers #(num_of_batches, sentences_in_batch, emb_dim)
+            
             #Layer aggregation followed by word aggregation
             user_rep = [] #(num msgs, hidden_dim, lagg)
             for i in range(len(msg_rep)):#Iterating through messages
-                sent_rep = []
-                for j in range(len(msg_rep[i])): #Iterate through the submessages to apply layer aggregation. 
-                    sub_msg = msg_rep[i][j]
-                    sub_msg_lagg = []
-                    for lagg in layerAggregations:
-                        if lagg == 'concatenate':
-                            sub_msg_lagg.append(sub_msg) #(seq len, hidden dim, num layers)
-                        else:
-                            sub_msg_lagg.append(eval("np."+lagg+"(sub_msg, axis=-1)").reshape(sub_msg.shape[0], sub_msg.shape[1], 1) )#(seq len, hidden dim, 1)
-                        #Shape: (seq len, hidden dim, (num_layers*(concatenate==True)+(sum(other layer aggregations))))
-                        #Example: lagg = [mean, min, concatenate], layers = [8,9]; Shape: (seq len, hidden dim, 2 + 1 + 1)
-                        sub_msg_lagg_ = np.concatenate(sub_msg_lagg, axis=-1) 
-                    #Getting the mean of all tokens representation
-                    #TODO: add word agg list and do eval
-                    sub_msg_lagg_wagg = np.mean(sub_msg_lagg_, axis=0) #Shape: (hidden dim, lagg)
-                    #ReShaping: (1, hidden dim, lagg)
-                    print("AARON DEBUG 1: ", sub_msg_lagg_wagg.shape)
-                    sub_msg_lagg_wagg = sub_msg_lagg_wagg.reshape(1, sub_msg_lagg_wagg.shape[0], sub_msg_lagg_wagg.shape[1]) 
-                    #Sentence representations
-                    sent_rep.append(sub_msg_lagg_wagg)
+                sub_msg = msg_rep[i]
+                sub_msg_lagg = []
+                for lagg in layerAggregations:
+                    if lagg == 'concatenate':
+                        sub_msg_lagg.append(sub_msg) #(seq len, hidden dim, num layers)
+                    else:
+                        sub_msg_lagg.append(eval("np."+lagg+"(sub_msg, axis=-1)").reshape(sub_msg.shape[0], sub_msg.shape[1], 1) )#(seq len, hidden dim, 1)
+                    #Shape: (seq len, hidden dim, (num_layers*(concatenate==True)+(sum(other layer aggregations))))
+                    #Example: lagg = [mean, min, concatenate], layers = [8,9]; Shape: (seq len, hidden dim, 2 + 1 + 1)
+                    print("AARON DEBUG SHAPE 1 +================ ", len(sub_msg_lagg))
+                    sub_msg_lagg_ = np.concatenate(sub_msg_lagg, axis=-1)
+                    print("AARON DEBUG SHAPE 2 +================ ", sub_msg_lagg_.shape)
+                #Getting the mean of all tokens representation
                 #Accumulate all the sentence representation of a user
-                user_rep.append(np.mean(np.concatenate(sent_rep, axis=0), axis=0)) 
-
-            user_rep = np.array(user_rep)
+                
+                user_rep.append(sub_msg_lagg_.reshape(sub_msg_lagg_.shape[0], -1))
+            print("AARON DEBUG: ", len(user_rep))
+            print("AARON DEBUG: ", user_rep[0].shape)
+            user_rep = np.vstack(user_rep)
+            print("AARON DEBUG: ", user_rep.shape)
             if user_rep.shape[0] == 0:
                 continue
             #Flatten the features [layer aggregations] to a single dimension.
-            user_rep = user_rep.reshape(user_rep.shape[0], -1)
+            print("AARON DEBUG SHAPE1: ", user_rep.shape)
+            #user_rep = user_rep.reshape(user_rep.shape[1], -1)
+            print("AARON DEVUG SHAPE15: ", user_rep.shape)
             if len(user_rep)>0:
                 embFeats = dict()
-
                 if keepMsgFeats: #just store message embeddings
                     embRows = []
+                    print("AARON DEBUG SHAPE2: ", user_rep.shape)
                     for mid, msg in zip(midList, user_rep):
+                        print("AARON DEBUG mid=========: ", mid)
+                        #print("AARON DEBUG msg=========: ", msg)
                         embRows.extend([(str(mid), str(k), v, valueFunc(v)) for (k, v) in enumerate(msg)])
                     wsql = """INSERT INTO """+embTableName+""" (group_id, feat, value, group_norm) values (%s, %s, %s, %s)"""
                     mm.executeWriteMany(self.corpdb, self.dbCursor, wsql, embRows, writeCursor=self.dbConn.cursor(), charset=self.encoding, use_unicode=self.use_unicode, mysql_config_file=self.mysql_config_file)
                     
                 else:#Applying message aggregations
                     for ag in aggregations:
+                        #print("AARON DEBUG; ", user_rep.shape)
                         thisAg = eval("np."+ag+"(user_rep, axis=0)")
                         embFeats.update([(str(k)+ag[:2], v) for (k, v) in enumerate(thisAg)])
-                
+                        #print("AARON DEBUG sfefsegfsegse; ", thisAg.shape)
                         #wsql = """INSERT INTO """+embTableName+""" (group_id, feat, value, group_norm) values ('"""+str(cf_id)+"""', %s, %s, %s)"""
                         insert_idx_start = 0
                         insert_idx_end = dlac.MYSQL_BATCH_INSERT_SIZE
