@@ -1673,6 +1673,8 @@ class FeatureExtractor(DLAWorker):
            dlac.warn("Please install pytorch and transformers and sentence_transformers.")
            sys.exit(1)
 
+        if layersToKeep != [-1]:
+            dlac.warn("WARNING: you are taking embeddings from layer(s) other than the final layer, SentenceTransformer cosine similarity may not be preserved")
 
         tokenizerName = modelName if tokenizerName is None else tokenizerName
         tokenizer = AutoTokenizer.from_pretrained(tokenizerName)
