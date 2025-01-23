@@ -1760,10 +1760,12 @@ class FeatureExtractor(DLAWorker):
             #Number of Batches
             num_batches = int(np.ceil(len(input_sents)/batch_size))
             encSelectLayers = []
-
             transformer = model[0].auto_model
             pooling_layer = model[1]
-            normalize_layer = model[2]
+            try:
+                normalize_layer = model[2]
+            except:
+                pass
         
 
 
@@ -1784,10 +1786,13 @@ class FeatureExtractor(DLAWorker):
                 
                 for lyr in layersToKeep:
                     # Apply pooling
-                    pooled_emb = pooling_layer({"token_embeddings": hidden_states[lyr], "attention_mask": attention_mask_padded})
+                    emb = pooling_layer({"token_embeddings": hidden_states[lyr], "attention_mask": attention_mask_padded})
                     # Apply normalization
-                    normalized_emb = normalize_layer(pooled_emb)
-                    encSelectLayers_temp.append(normalized_emb["sentence_embedding"].detach().cpu().numpy())
+                    try:
+                        emb = normalize_layer(emb)
+                    except:
+                        pass
+                    encSelectLayers_temp.append(emb["sentence_embedding"].detach().cpu().numpy())
 
                 encSelectLayers.append(np.transpose(np.array(encSelectLayers_temp),(1,2,0)))
 
